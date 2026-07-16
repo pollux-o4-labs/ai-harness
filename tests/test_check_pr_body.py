@@ -177,6 +177,34 @@ def test_checklist_is_budget_exempt():
     assert cpb.CHECKLIST_SECTION not in cpb.SECTION_BUDGETS
 
 
+# --- create/merge 분리: 체크리스트 완료는 머지에서만 -------------------------
+
+def test_create_mode_allows_unchecked_checklist():
+    """PR 생성(리뷰 요청) 시점엔 확인 체크리스트가 미체크여도 통과 — 형식만 강제."""
+    body = GOOD_BODY.replace("[x]", "[ ]")  # 모든 체크 해제
+    assert cpb.check_pr_body(body, require_checklist_complete=False) == []
+
+
+def test_create_mode_still_enforces_format():
+    """create여도 형식(은어 등)은 강제된다 — 체크리스트 완료만 유예."""
+    body = GOOD_BODY.replace("[x]", "[ ]").replace("커밋 산출물 기준.", "폴백 확인.")
+    v = cpb.check_pr_body(body, require_checklist_complete=False)
+    assert any("'폴백'" in x for x in v)  # 은어는 여전히 잡힘
+
+
+def test_create_mode_still_requires_checklist_section():
+    """create여도 확인 절 자체는 있어야 한다 — 리뷰어가 채울 자리."""
+    body = GOOD_BODY.split("## 확인")[0]
+    v = cpb.check_pr_body(body, require_checklist_complete=False)
+    assert any("'## 확인' 없음" in x for x in v)
+
+
+def test_merge_mode_requires_all_checked():
+    """머지 시점(기본 True)엔 미체크 항목이 있으면 리젝."""
+    body = GOOD_BODY.replace("[x] 가독성", "[ ] 가독성")
+    assert any("체크 안 됨" in x for x in cpb.check_pr_body(body))  # 기본=완료요구
+
+
 def test_checkbox_is_self_report_not_evidence():
     """체크박스가 강제하는 것은 글자 'x' 하나뿐임을 고정한다(원칙 2).
 

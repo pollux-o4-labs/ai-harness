@@ -5,8 +5,13 @@
 `gh pr create`로 올라가는 본문이 `.github/PULL_REQUEST_TEMPLATE.md`의 섹션을
 갖췄는지, 각 섹션이 예산 안인지 검사한다. 언어 지시("짧게 써라")가 안 지켜지므로
 구조로 강제한다(원칙 1). `gh pr merge`도 같은 검사기로 리젝한다 — 대상 PR의
-현재 본문을 `gh pr view --json body`로 조회해 같은 판정을 재사용한다("머지는
-사장 몫" 규약을 처음 기계로 강제, docs/handoff/2-now-state.md).
+현재 본문을 `gh pr view --json body`로 조회해 판정한다("머지는 사장 몫" 규약을
+처음 기계로 강제, docs/handoff/2-now-state.md).
+
+**create와 merge의 차이(확인 체크리스트)**: create는 리뷰 요청 시점이라 리뷰어가
+아직 체크를 못 했다 — 형식(섹션·분량·은어·문장)만 강제하고 확인 절은 '존재'만
+본다. merge는 리뷰가 끝난 뒤라 확인 절 '전량 체크'까지 요구한다. 이러면 "PR
+올려 리뷰받고 → 리뷰어가 체크 → 머지"가 성립한다.
 
 **예산을 섹션별로 쪼갠 이유**: 총량만 걸면 저자가 어느 섹션을 죽일지 스스로
 고른다 — 서사가 붙기 쉬운 요약이 부풀고, 리뷰어에게 정작 필요한 검증·범위밖이
@@ -151,6 +156,17 @@ def check_checklist(sections: dict[str, str]) -> list[str]:
     ]
 
 
+def check_checklist_present(sections: dict[str, str]) -> list[str]:
+    """`확인` 섹션이 있는지만 본다(항목 체크 여부는 안 본다).
+
+    PR 생성 시점은 **리뷰 요청**이라 리뷰어가 아직 체크를 못 했다 — 이때 완료를
+    요구하면 리뷰 전에 작성자가 자기 체크를 강제당해 "리뷰→체크" 흐름이 깨진다.
+    완료(모든 항목 체크)는 머지 시점(check_checklist)에서 요구한다."""
+    if CHECKLIST_SECTION not in sections:
+        return [f"섹션 '## {CHECKLIST_SECTION}' 없음 — 체크리스트는 필수다."]
+    return []
+
+
 def check_sentences(sections: dict[str, str]) -> list[str]:
     """예산 섹션의 산문 한 줄에 문장이 여럿이면 리젝 — 한 줄 한 문장.
 
@@ -171,8 +187,13 @@ def check_sentences(sections: dict[str, str]) -> list[str]:
     return violations
 
 
-def check_pr_body(body: str) -> list[str]:
-    """위반 목록을 반환한다(빈 리스트 = 통과)."""
+def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[str]:
+    """위반 목록을 반환한다(빈 리스트 = 통과).
+
+    require_checklist_complete=False(PR 생성 시점)면 확인 절 '존재'만 보고 '모든
+    항목 체크'는 요구하지 않는다 — 리뷰 전이라 리뷰어가 아직 못 채운다. 머지
+    시점은 True로 전량 체크를 요구한다(리뷰 끝난 뒤). 형식(섹션·분량·은어·문장)은
+    두 시점 다 강제한다."""
     sections = parse_sections(body)
     violations: list[str] = []
 
@@ -192,7 +213,10 @@ def check_pr_body(body: str) -> list[str]:
             )
 
     violations.extend(check_sentences(sections))
-    violations.extend(check_checklist(sections))
+    if require_checklist_complete:
+        violations.extend(check_checklist(sections))
+    else:
+        violations.extend(check_checklist_present(sections))
 
     allowed = set(SECTION_BUDGETS) | {CHECKLIST_SECTION}
     unknown = [s for s in sections if s not in allowed]
@@ -385,9 +409,13 @@ def run_hook() -> int:
 
     command = (payload.get("tool_input") or {}).get("command", "")
     body, reason = extract_body_from_command(command)
+    # create = 리뷰 요청 시점이라 체크리스트 완료를 요구하지 않는다(형식만).
+    # merge = 리뷰 끝난 뒤라 체크리스트 전량까지 요구한다.
+    is_merge = False
     if body is None and reason is None:
         # gh pr create가 아님 — gh pr merge인지 본다(둘 다 아니면 통과).
         body, reason = extract_body_from_merge_command(command)
+        is_merge = True
 
     if body is None:
         if reason is None:
@@ -395,7 +423,7 @@ def run_hook() -> int:
         print(f"[check_pr_body] PR 본문 리젝 — {reason}", file=sys.stderr)
         return 2
 
-    violations = check_pr_body(body)
+    violations = check_pr_body(body, require_checklist_complete=is_merge)
     if violations:
         _report(violations, body)
         return 2
