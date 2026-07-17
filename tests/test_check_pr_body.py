@@ -314,6 +314,22 @@ def test_change_type_rejects_prose():
                for v in cpb.check_pr_body(body))
 
 
+@pytest.mark.parametrize("payload,label", [
+    ("```\n이건 아주 긴 산문이고 예산을 우회한다\n```", "코드펜스"),
+    ("`이건 아주 긴 산문이고 예산을 우회한다`", "인라인코드"),
+])
+def test_prose_cannot_hide_in_code_markup(payload, label):
+    """코드 표기로 감싼 산문도 리젝 — 형태 검사는 코드를 벗기면 안 된다.
+
+    은어·문장 검사는 "코드는 산문이 아니다"라 strip_code로 벗기는 게 맞지만, 형태
+    검사에 같은 짓을 하면 감싼 내용이 **사라져서** 섹션이 비어 보이고 통과한다.
+    자가 공격으로 실측한 우회구다 — 코드펜스 줄 자체가 이 섹션에 올 수 없는 형태다.
+    """
+    body = GOOD_BODY.replace("Closes #1", payload)
+    assert any("정해진 형태가 아님" in v and "관련 이슈" in v
+               for v in cpb.check_pr_body(body)), f"{label}로 산문을 숨길 수 있다"
+
+
 # --- 템플릿 ↔ 스크립트 정합 --------------------------------------------------
 #
 # 템플릿 문구와 REQUIRED_CHECKS가 한 글자라도 어긋나면 그 레포의 **모든 PR이 머지

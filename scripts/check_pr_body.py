@@ -240,7 +240,12 @@ def check_exempt_shape(sections: dict[str, str]) -> list[str]:
     for name, (pattern, hint) in _EXEMPT_SHAPE.items():
         if name not in sections:
             continue
-        clean = strip_code(strip_html_comments(sections[name]))
+        # strip_code를 쓰면 안 된다 — 코드펜스·백틱으로 감싼 산문이 **사라져서**
+        # 섹션이 비어 보이고 그대로 통과한다(자가 공격으로 실측한 우회구). 은어·문장
+        # 검사는 "코드는 산문이 아니다"라 벗겨내는 게 맞지만, 형태 검사는 반대다 —
+        # 코드펜스 줄 자체가 이 섹션에 올 수 없는 형태이므로 그대로 봐야 잡는다.
+        # HTML 주석만 벗긴다(렌더링되지 않아 독자에게 안 보이므로 내용이 아니다).
+        clean = strip_html_comments(sections[name])
         for i, line in enumerate(clean.splitlines(), 1):
             if not line.strip() or _NONE_LINE.match(line):
                 continue  # 빈 줄·'없음'은 어느 섹션에서나 유효한 내용이다
