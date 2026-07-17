@@ -149,6 +149,18 @@ def is_git_ignored(path: Path) -> bool:
     return result.returncode == 0
 
 
+def is_skipped_dir(d: Path) -> bool:
+    """폴더를 순회·인덱스에서 건너뛸지 — 이름 규칙(시스템/사설) 또는 git-ignore(로컬 전용).
+
+    gitignore된 폴더(예: `snapshots/` 스크래치)는 체크아웃마다 존재가 갈린다.
+    인덱스에 실으면 그 폴더를 가진 사람과 아닌 사람이 서로 다른 README를 생성해
+    결과 자체가 오염되고, 그 drift가 --check를 막아 무관한 커밋까지 봉쇄한다.
+    추적하지 않는(=관리 대상 아닌) 폴더는 생성·인덱스 양쪽에서 뺀다.
+    (원본: vector-graph-ontology#21 증상 2 — 레포가 달라 번호를 그대로 쓰면 엉뚱한
+    이슈를 가리키므로 레포명까지 적는다.)"""
+    return is_excluded_dir(d) or is_git_ignored(d)
+
+
 def iter_folders(root: Path):
     """제외 규칙을 지키며 폴더를 재귀적으로 순회(루트 포함)."""
     yield root
@@ -164,7 +176,7 @@ def iter_folders(root: Path):
             print(f"[warn] 폴더 읽기 실패로 건너뜀(검증 누락 가능): {cur} ({e})", file=sys.stderr)
             continue
         for child in children:
-            if is_excluded_dir(child):
+            if is_skipped_dir(child):
                 continue
             yield child
             stack.append(child)
@@ -173,7 +185,7 @@ def iter_folders(root: Path):
 def build_index_block(folder: Path, missing: list[Path]) -> str:
     """폴더의 하위 폴더/문서 BLUF를 모아 인덱스 블록 텍스트를 만든다."""
     subdirs = sorted(
-        [p for p in folder.iterdir() if p.is_dir() and not p.is_symlink() and not is_excluded_dir(p)],
+        [p for p in folder.iterdir() if p.is_dir() and not p.is_symlink() and not is_skipped_dir(p)],
         key=lambda p: p.name,
     ) if folder.is_dir() else []
 
