@@ -115,7 +115,9 @@ def test_abort_is_all_or_nothing_across_folders(tmp_path, monkeypatch):
 
 # --- gitignore된 폴더는 관리 대상이 아니다 ------------------------------------
 #
-# 실사고: gen_readmes가 gitignore된 `snapshots/` 안 README를 관리 대상으로 삼아
+# 실사고(pollux-o4-labs/vector-graph-ontology#21 증상 2 — 그 레포엔 `snapshots/`라는
+# gitignore된 스크래치 폴더가 있었다. 이 레포엔 없으니 여기서 찾지 마라):
+# gen_readmes가 gitignore된 `snapshots/` 안 README를 관리 대상으로 삼아
 # drift를 냈고, 그 README는 추적되지 않아 커밋할 수 없으니 --check가 영원히
 # 비영 → pre-commit이 무관한 커밋까지 통째로 막았다. 추적 안 되는 폴더는 빼야 한다.
 

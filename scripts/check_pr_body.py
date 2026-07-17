@@ -80,8 +80,11 @@ _ISSUE_REF_LINE = re.compile(
 
 _NONE_LINE = re.compile(r"^\s*없음\s*$")
 
-# 섹션명 → (허용 형태, 위반 시 처방). 새 면제 섹션을 늘리면 여기 형태도 **반드시**
-# 같이 정한다 — 형태 없는 면제 섹션은 곧 예산 회피구다.
+# 섹션명 → (허용 형태, 위반 시 처방). EXEMPT_SECTIONS의 **모든** 섹션이 여기 있어야
+# 한다 — check_exempt_shape는 이 dict만 순회하므로, 이름만 올리고 형태를 안 정하면
+# 예산도 형태도 없는 조용한 회피구가 된다(실측: 형태 미정의 섹션에 3000자 → 위반 0).
+# 이 문장도 말로 둔 전제라 거짓이 될 수 있으므로 코드로 강제한다 —
+# tests/test_check_pr_body.py::test_every_exempt_section_has_a_shape.
 _EXEMPT_SHAPE: dict[str, tuple[re.Pattern[str], str]] = {
     "변경 유형": (_CHECKBOX_LINE, "체크박스 줄(`- [x] ...`)만 쓸 수 있다"),
     "관련 이슈": (_ISSUE_REF_LINE, "이슈 참조(`Closes #12`·`Refs owner/repo#12`)만 쓸 수 있다"),
@@ -252,8 +255,9 @@ def check_exempt_shape(sections: dict[str, str]) -> list[str]:
             if not pattern.match(line):
                 violations.append(
                     f"섹션 '## {name}' {i}번째 줄이 정해진 형태가 아님 — {hint}"
-                    f"(해당 없으면 '없음' 또는 섹션째 삭제). 이 섹션은 글자 예산이 "
-                    f"없으므로 산문을 담을 수 없다 — 설명은 '## 변경'에 예산 안에서 써라."
+                    f"(해당 없으면 '없음' 또는 섹션째 삭제). 이 섹션은 글자 예산을 "
+                    f"안 먹이는 **대신** 형태를 강제한다 — 설명·서사는 '## 변경'에 "
+                    f"예산 안에서 써라."
                 )
     return violations
 

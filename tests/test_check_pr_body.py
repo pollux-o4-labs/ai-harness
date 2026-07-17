@@ -1,5 +1,7 @@
-# BLUF: check_pr_body의 섹션 필수·섹션별 예산·은어 풀이·gh 명령 본문추출·훅 exit코드를 무DB·무LLM으로 검증.
-"""tests/test_check_pr_body.py — PR 본문 게이트 단위테스트(무DB·무LLM).
+# BLUF: check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·은어 풀이·gh 명령 본문추출·훅 exit코드를 검증.
+"""tests/test_check_pr_body.py — PR 본문 게이트 단위테스트.
+
+DB도 LLM(언어모델)도 안 쓴다 — 순수 문자열 판정이라 어디서 돌려도 같은 결과다.
 
 scripts를 import하기 위해 repo 루트의 scripts 디렉토리를 sys.path에 얹는다.
 """
@@ -230,6 +232,23 @@ def test_exempt_sections_are_optional():
 def test_exempt_section_is_budget_exempt(name):
     """내용이 체크박스·정해진 한 줄이라 저자가 줄일 몫이 아니다 — 예산 밖."""
     assert name not in cpb.SECTION_BUDGETS
+
+
+def test_every_exempt_section_has_a_shape():
+    """면제 섹션에는 **예외 없이** 형태가 정의돼야 한다.
+
+    `check_exempt_shape`는 `_EXEMPT_SHAPE`만 순회한다 — `EXEMPT_SECTIONS`에만 이름을
+    올리고 형태를 안 정하면, 그 섹션은 예산도 형태도 없는 **조용한 회피구**가 된다
+    (실측: 형태 미정의 면제 섹션에 3000자를 넣어도 위반 0건).
+
+    이 파일의 다른 주석들이 "형태 없는 면제 섹션은 곧 예산 회피구다"라고 말로 적어
+    뒀지만, 말로 둔 전제는 지켜지지 않는다 — 그게 이 PR이 처음에 저지른 실수이고,
+    같은 실수를 한 층 위에서 반복하지 않으려면 이 한 줄이 필요하다(적대 리뷰 지적).
+    """
+    assert set(cpb.EXEMPT_SECTIONS) == set(cpb._EXEMPT_SHAPE), (
+        "EXEMPT_SECTIONS와 _EXEMPT_SHAPE가 어긋났다 — 형태 없는 면제 섹션은 "
+        "예산도 형태도 없어 산문을 무제한 담을 수 있다."
+    )
 
 
 def test_exempt_section_not_length_budgeted():
