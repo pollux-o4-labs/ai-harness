@@ -25,6 +25,14 @@ GOOD_BODY = """\
 
 PR 본문에 섹션·분량·용어풀이 게이트를 건다.
 
+## 변경 유형
+
+- [x] ✨ 새 기능
+
+## 관련 이슈
+
+Closes #1
+
 ## 변경
 
 - `scripts/check_pr_body.py` — 섹션 4개 필수 + 섹션별 글자예산 + 내부용어 첫등장 풀이 검사
@@ -48,6 +56,8 @@ PR 본문에 섹션·분량·용어풀이 게이트를 건다.
   - [x] 바꾼 값·사실을 옮겨 적은 다른 문서도 같이 고쳤는지 확인했다
   - [x] 이 문서를 가리키던 링크·참조가 끊기지 않았는지 확인했다
   - [x] 영향받는 문서의 요약(맨 위 한 줄)이 여전히 맞는지 확인했다
+- [x] 필요한 테스트를 추가하거나 갱신했다
+- [x] 동작을 깨는 변경(breaking change)이라면 본문에 명시했다
 """
 
 
@@ -175,6 +185,75 @@ def test_missing_checklist_section_rejected():
 def test_checklist_is_budget_exempt():
     """체크 문구는 고정이라 저자가 줄일 수 없다 — 예산을 먹이면 안 된다."""
     assert cpb.CHECKLIST_SECTION not in cpb.SECTION_BUDGETS
+
+
+# --- org 공용 템플릿 통합: 예산 면제 섹션 -----------------------------------
+#
+# org `.github` 레포의 공용 템플릿이 이미 13개 레포에 `변경 유형`·`관련 이슈`를
+# 뿌리고 있었는데, 게이트는 그 둘을 "템플릿에 없는 섹션"으로 리젝했다 — 공용
+# 템플릿으로 연 PR을 `gh pr merge`가 막는 상태였다(본문을 gh pr view로 끌어와
+# 검사하므로 웹에서 연 PR도 걸린다). 아래는 그 통합의 회귀 방지다.
+
+@pytest.mark.parametrize("name", cpb.EXEMPT_SECTIONS)
+def test_exempt_section_accepted(name):
+    """org 공용 골격 섹션은 '미지 섹션'으로 리젝되면 안 된다."""
+    assert not any(
+        "템플릿에 없는 섹션" in v and name in v for v in cpb.check_pr_body(GOOD_BODY)
+    )
+
+
+def _drop_section(body: str, name: str) -> str:
+    """`## <name>` 헤딩부터 다음 `## ` 헤딩 직전까지를 통째로 지운다."""
+    out: list[str] = []
+    skipping = False
+    for line in body.splitlines(keepends=True):
+        if line.startswith("## "):
+            skipping = line[3:].strip() == name
+        if not skipping:
+            out.append(line)
+    return "".join(out)
+
+
+def test_exempt_sections_are_optional():
+    """org 템플릿 자신이 '해당 없는 섹션은 지워도 된다'를 계약으로 둔다 —
+    존재를 강제하면 그 계약이 깨진다."""
+    body = GOOD_BODY
+    for name in cpb.EXEMPT_SECTIONS:
+        body = _drop_section(body, name)
+    for name in cpb.EXEMPT_SECTIONS:
+        assert f"## {name}" not in body  # 헬퍼가 실제로 지웠는지부터 확인
+    assert cpb.check_pr_body(body) == []
+
+
+@pytest.mark.parametrize("name", cpb.EXEMPT_SECTIONS)
+def test_exempt_section_is_budget_exempt(name):
+    """내용이 체크박스·정해진 한 줄이라 저자가 줄일 몫이 아니다 — 예산 밖."""
+    assert name not in cpb.SECTION_BUDGETS
+
+
+def test_exempt_section_ignores_length():
+    """면제 섹션이 아무리 길어도 예산 위반이 나오면 안 된다."""
+    body = GOOD_BODY.replace("Closes #1", "가" * 5000)
+    assert not any("'## 관련 이슈'" in v for v in cpb.check_pr_body(body))
+
+
+def test_exempt_section_excluded_from_budget_total(capsys):
+    """면제 섹션은 총계에도 안 들어간다 — `확인`과 같은 이유."""
+    body = GOOD_BODY.replace("Closes #1", "가" * 5000)
+    cpb._report(["dummy"], body)
+    reported = capsys.readouterr().err
+    prose_only = sum(
+        cpb.measure(cpb.parse_sections(body).get(n, "")) for n in cpb.SECTION_BUDGETS
+    )
+    assert f"총 {prose_only}자" in reported
+    assert "5000" not in reported
+
+
+def test_unknown_section_still_rejected():
+    """면제 목록을 열었다고 아무 섹션이나 통과하면 게이트가 아니다."""
+    body = GOOD_BODY.replace("## 관련 이슈", "## 아무거나")
+    assert any("템플릿에 없는 섹션" in v and "아무거나" in v
+               for v in cpb.check_pr_body(body))
 
 
 # --- create/merge 분리: 체크리스트 완료는 머지에서만 -------------------------

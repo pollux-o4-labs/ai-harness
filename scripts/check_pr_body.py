@@ -50,6 +50,18 @@ SECTION_BUDGETS: dict[str, int] = {
 # 말라고 한 바로 그 형태이므로, 여기 체크가 곧 사실이라고 읽어서는 안 된다.
 CHECKLIST_SECTION = "확인"
 
+# 존재는 허용하되 글자 예산을 안 먹이는 섹션 — 조직 공용 템플릿(org `.github`
+# 레포의 pull_request_template.md)에서 온 표준 골격이다.
+#
+# 예산을 안 먹이는 이유는 `확인`과 같다: 내용이 체크박스(변경 유형)거나 정해진
+# 한 줄(관련 이슈: `Closes #N`)이라 저자가 줄일 수 있는 몫이 아니다. 산문 예산에
+# 섞으면 저자가 못 건드리는 만큼 예산을 뺏는다.
+#
+# **필수가 아니다** — org 템플릿 자신이 "해당 없는 섹션은 지워도 됩니다"를 계약으로
+# 두므로, 여기서 존재를 강제하면 그 계약을 깬다. 이 집합의 역할은 강제가 아니라
+# "미지 섹션 리젝"에 걸리지 않게 하는 허용 목록이다.
+EXEMPT_SECTIONS: tuple[str, ...] = ("변경 유형", "관련 이슈")
+
 # 문장 종결 마침표 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
 # 스크립트는 stdlib only(훅에서 vgo 설치 없이 돈다)라 import로 합칠 수 없어
 # 정규식을 복제한다. 앞이 숫자·마침표면 배제(소수·번호·말줄임), 뒤가 공백
@@ -63,6 +75,11 @@ REQUIRED_CHECKS: tuple[str, ...] = (
     "바꾼 값·사실을 옮겨 적은 다른 문서도 같이 고쳤는지 확인했다",
     "이 문서를 가리키던 링크·참조가 끊기지 않았는지 확인했다",
     "영향받는 문서의 요약(맨 위 한 줄)이 여전히 맞는지 확인했다",
+    # 아래 2개는 org 공용 템플릿의 체크리스트에서 왔다 — 우리 목록이 문서 정합에만
+    # 쏠려 있어 코드 변경의 자기신고 축(테스트·호환성)이 비어 있었다. 나머지 org
+    # 항목(self-review·관련 문서 갱신)은 위 항목과 겹쳐 옮기지 않았다(재서술 금지).
+    "필요한 테스트를 추가하거나 갱신했다",
+    "동작을 깨는 변경(breaking change)이라면 본문에 명시했다",
 )
 
 # 제3자가 한 번에 못 읽는 이 저장소의 내부 용어 — 첫 등장에 괄호 풀이를 요구한다
@@ -218,12 +235,12 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
     else:
         violations.extend(check_checklist_present(sections))
 
-    allowed = set(SECTION_BUDGETS) | {CHECKLIST_SECTION}
+    allowed = set(SECTION_BUDGETS) | {CHECKLIST_SECTION} | set(EXEMPT_SECTIONS)
     unknown = [s for s in sections if s not in allowed]
     if unknown:
         violations.append(
             f"템플릿에 없는 섹션: {', '.join(unknown)} — "
-            f"허용 섹션은 {', '.join(allowed)} 뿐이다."
+            f"허용 섹션은 {', '.join(sorted(allowed))} 뿐이다."
         )
     violations.extend(check_jargon(body))
     return violations
