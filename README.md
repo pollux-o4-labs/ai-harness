@@ -9,7 +9,7 @@
 | 파일 | 역할 |
 |---|---|
 | `scripts/check_doc_form.py` | 문서 폼 게이트 — 줄수·산문 80자·한 줄 한 문장·BLUF·좌표(줄번호) 금지. `--staged`는 **diff 스코프**(손댄 줄만). |
-| `scripts/check_pr_body.py` | PR 본문 게이트 — 필수 섹션·섹션별 분량·내부 은어 풀이·확인 체크리스트. `--hook`으로 `gh pr create`/`gh pr merge` 리젝. |
+| `scripts/check_pr_body.py` | PR 본문 게이트 — 필수 섹션·섹션별 분량·**예산 없는 섹션의 형태**·내부 은어 풀이·확인 체크리스트. `--hook`으로 `gh pr create`/`gh pr merge` 리젝. |
 | `scripts/gen_readmes.py` | 폴더 README의 BLUF-INDEX 자동생성 + drift 검사(`--check`). |
 | `scripts/install_hooks.py` | `hooks/`를 `.git/hooks/`로 설치. |
 | `hooks/pre-commit` | 커밋 전 `check_doc_form --staged` + `gen_readmes --check`. |

@@ -34,6 +34,7 @@ import shlex
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 # 이 dict가 PR 본문 예산의 정본이다 — 규칙 09·템플릿·문서는 이 값을 재서술하지
 # 말고 이 파일을 가리킬 것(규칙 08 제3조). 위반 메시지가 실측값과 함께
@@ -65,29 +66,67 @@ CHECKLIST_SECTION = "확인"
 # 두므로, 여기서 존재를 강제하면 그 계약을 깬다. 강제하는 건 존재가 아니라 형태다.
 EXEMPT_SECTIONS: tuple[str, ...] = ("변경 유형", "관련 이슈")
 
-# `변경 유형`: 체크박스 줄만. 고정문구 목록이라 저자가 쓸 것은 x 표시뿐이다.
+# 체크박스 줄. 들여쓴 하위 항목도 받는다(중첩이 곧 위반이 되면 안 된다).
 _CHECKBOX_LINE = re.compile(r"^\s*-\s*\[[ xX]\]\s+\S")
 
-# `관련 이슈`: 이슈 참조 한 줄만. GitHub 종료 키워드(Closes/Fixes/Resolves)와 단순
-# 참조(Refs)를 받는다. 교차 레포 참조는 `owner/repo#N` 완전형만 받는다 — `repo#N`은
-# GitHub이 자동 링크하지 않아 읽는 사람이 따라갈 수 없다.
-_ISSUE_REF_LINE = re.compile(
-    r"^\s*-?\s*"
-    r"(?:(?:Clos(?:e|es|ed)|Fix(?:|es|ed)|Resolv(?:e|es|ed)|Refs?)\s+)?"
-    r"(?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#\d+\s*$",
+# 이슈 참조 토큰 — `#12`, `owner/repo#12`, 그리고 GitHub이 링크하는 전체 URL.
+# `repo#12`(레포명만)는 일부러 뺐다: GitHub이 자동 링크하지 않아 독자가 못 따라간다.
+_REF_TOKEN = re.compile(
+    r"https?://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(?:issues|pull)/\d+"
+    r"|(?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#\d+"
+)
+# 종료 키워드. GitHub이 인식하는 것만.
+#
+# **긴 대안을 먼저** 둔다. 정규식 대안은 왼쪽부터 먹으므로 `Clos(?:e|es|ed)`로 쓰면
+# "Closes"에서 "Close"만 먹고 "s"를 남긴다 — 매칭 위치가 고정된 `.sub()`는 앵커
+# 있는 매칭과 달리 되짚지 않는다. 남은 "s"가 산문으로 오인돼 정상 참조가 리젝됐다.
+_REF_KEYWORD = re.compile(
+    r"Closed|Closes|Close|Fixed|Fixes|Fix|Resolved|Resolves|Resolve|Refs|Ref|and",
     re.IGNORECASE,
 )
 
-_NONE_LINE = re.compile(r"^\s*없음\s*$")
+_NONE_LINE = re.compile(r"^\s*(?:없음|N/?A)\s*$", re.IGNORECASE)
 
-# 섹션명 → (허용 형태, 위반 시 처방). EXEMPT_SECTIONS의 **모든** 섹션이 여기 있어야
-# 한다 — check_exempt_shape는 이 dict만 순회하므로, 이름만 올리고 형태를 안 정하면
-# 예산도 형태도 없는 조용한 회피구가 된다(실측: 형태 미정의 섹션에 3000자 → 위반 0).
+
+def _is_issue_ref_line(line: str) -> bool:
+    """줄 전체가 이슈 참조로만 이뤄졌는지 — 참조 여러 개도 받는다.
+
+    `Closes #1, #2`·`Closes #1, closes #2`·이슈 URL은 GitHub이 정상 링크하는 표준
+    표기라 받아야 한다(정규식으로 "한 줄에 하나"를 강요하면 게이트가 아니라 족쇄가
+    된다 — 적대 리뷰 지적). 참조 토큰·키워드·구분자를 걷어내고 **남는 게 있으면**
+    그건 산문이므로 리젝한다.
+    """
+    if not _REF_TOKEN.search(line):
+        return False
+    rest = _REF_KEYWORD.sub("", _REF_TOKEN.sub("", line))
+    return re.sub(r"[\s,;\-·]+", "", rest) == ""
+
+
+# 섹션명 → (허용 판정, 위반 시 처방).
+#
+# **예산이 없는 섹션은 예외 없이 여기 있어야 한다.** 예산도 형태도 없는 섹션은 곧
+# 산문 창고다 — 저자는 예산이 넘칠 때마다 넘친 문장을 거기로 옮기면 된다.
+# 실측으로 두 번 당했다: (1) 형태 미정의 면제 섹션에 3000자 → 위반 0,
+# (2) `확인` 섹션 뒤에 산문 626자 → exit 0 통과. `확인`은 **필수**라 항상 존재하고
+# 렌더링도 되므로 `관련 이슈`보다 더 좋은 은신처였다.
+#
 # 이 문장도 말로 둔 전제라 거짓이 될 수 있으므로 코드로 강제한다 —
-# tests/test_check_pr_body.py::test_every_exempt_section_has_a_shape.
-_EXEMPT_SHAPE: dict[str, tuple[re.Pattern[str], str]] = {
-    "변경 유형": (_CHECKBOX_LINE, "체크박스 줄(`- [x] ...`)만 쓸 수 있다"),
-    "관련 이슈": (_ISSUE_REF_LINE, "이슈 참조(`Closes #12`·`Refs owner/repo#12`)만 쓸 수 있다"),
+# tests/test_check_pr_body.py::test_every_non_budget_section_has_a_shape.
+_EXEMPT_SHAPE: dict[str, tuple[Callable[[str], bool], str]] = {
+    "변경 유형": (
+        lambda ln: bool(_CHECKBOX_LINE.match(ln)),
+        "체크박스 줄(`- [x] ...`)만 쓸 수 있다",
+    ),
+    "관련 이슈": (
+        _is_issue_ref_line,
+        "줄 전체가 이슈 참조여야 한다 — `Closes #12`·`Refs owner/repo#12`·"
+        "`Closes #1, #2`·이슈 URL은 되고, 참조 옆에 덧붙인 설명은 안 된다"
+        "(백틱으로 감싸면 GitHub이 링크를 안 걸어 리젝된다)",
+    ),
+    CHECKLIST_SECTION: (
+        lambda ln: bool(_CHECKBOX_LINE.match(ln)),
+        "체크박스 줄만 쓸 수 있다 — 이 절은 자기신고 칸이지 설명 칸이 아니다",
+    ),
 }
 
 # 문장 종결 마침표 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
@@ -240,7 +279,7 @@ def check_exempt_shape(sections: dict[str, str]) -> list[str]:
     없어져 저자는 실제로 줄이는 수밖에 없다.
     """
     violations: list[str] = []
-    for name, (pattern, hint) in _EXEMPT_SHAPE.items():
+    for name, (is_allowed, hint) in _EXEMPT_SHAPE.items():
         if name not in sections:
             continue
         # strip_code를 쓰면 안 된다 — 코드펜스·백틱으로 감싼 산문이 **사라져서**
@@ -252,7 +291,7 @@ def check_exempt_shape(sections: dict[str, str]) -> list[str]:
         for i, line in enumerate(clean.splitlines(), 1):
             if not line.strip() or _NONE_LINE.match(line):
                 continue  # 빈 줄·'없음'은 어느 섹션에서나 유효한 내용이다
-            if not pattern.match(line):
+            if not is_allowed(line):
                 violations.append(
                     f"섹션 '## {name}' {i}번째 줄이 정해진 형태가 아님 — {hint}"
                     f"(해당 없으면 '없음' 또는 섹션째 삭제). 이 섹션은 글자 예산을 "
@@ -274,7 +313,10 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
 
     for name, budget in SECTION_BUDGETS.items():
         if name not in sections:
-            violations.append(f"섹션 '## {name}' 없음 — 템플릿 4개 섹션은 필수다.")
+            violations.append(
+                f"섹션 '## {name}' 없음 — 예산 섹션 "
+                f"{len(SECTION_BUDGETS)}개는 필수다."
+            )
             continue
         size = measure(sections[name])
         if size == 0:

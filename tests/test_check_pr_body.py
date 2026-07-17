@@ -234,21 +234,34 @@ def test_exempt_section_is_budget_exempt(name):
     assert name not in cpb.SECTION_BUDGETS
 
 
-def test_every_exempt_section_has_a_shape():
-    """면제 섹션에는 **예외 없이** 형태가 정의돼야 한다.
+def test_every_non_budget_section_has_a_shape():
+    """**예산이 없는 섹션은 예외 없이** 형태가 정의돼야 한다.
 
-    `check_exempt_shape`는 `_EXEMPT_SHAPE`만 순회한다 — `EXEMPT_SECTIONS`에만 이름을
-    올리고 형태를 안 정하면, 그 섹션은 예산도 형태도 없는 **조용한 회피구**가 된다
-    (실측: 형태 미정의 면제 섹션에 3000자를 넣어도 위반 0건).
+    예산도 형태도 없는 섹션은 곧 산문 창고다 — 저자는 예산이 넘칠 때마다 넘친
+    문장을 거기로 옮기면 되고, 그러면 예산 게이트가 무력화된다.
 
-    이 파일의 다른 주석들이 "형태 없는 면제 섹션은 곧 예산 회피구다"라고 말로 적어
-    뒀지만, 말로 둔 전제는 지켜지지 않는다 — 그게 이 PR이 처음에 저지른 실수이고,
-    같은 실수를 한 층 위에서 반복하지 않으려면 이 한 줄이 필요하다(적대 리뷰 지적).
+    실측으로 두 번 당했다:
+    1. `_EXEMPT_SHAPE`에 없는 면제 섹션에 3000자 → 위반 0건.
+    2. `확인` 섹션 뒤에 산문 626자 → `exit 0` 통과. `확인`은 **필수**라 항상 있고
+       GitHub에서 렌더링되므로 `관련 이슈`보다 더 좋은 은신처였다.
+
+    두 번 다 "이 섹션은 형태가 정해져 있다"를 **말로만** 둔 게 원인이다. 그게 이 PR이
+    처음 저지른 실수이고, 같은 실수를 한 층 위에서 반복하지 않으려면 이 불변식이
+    코드여야 한다(적대 리뷰 지적).
     """
-    assert set(cpb.EXEMPT_SECTIONS) == set(cpb._EXEMPT_SHAPE), (
-        "EXEMPT_SECTIONS와 _EXEMPT_SHAPE가 어긋났다 — 형태 없는 면제 섹션은 "
-        "예산도 형태도 없어 산문을 무제한 담을 수 있다."
+    non_budget = set(cpb.EXEMPT_SECTIONS) | {cpb.CHECKLIST_SECTION}
+    assert non_budget == set(cpb._EXEMPT_SHAPE), (
+        "예산 없는 섹션과 _EXEMPT_SHAPE가 어긋났다 — 형태 없는 무예산 섹션은 "
+        "산문을 무제한 담을 수 있다."
     )
+
+
+def test_prose_cannot_hide_in_checklist_section():
+    """`확인` 절 뒤에 산문을 붙이면 리젝 — 필수 섹션이라 가장 좋은 은신처였다."""
+    body = GOOD_BODY + "\n" + "이건 확인 섹션에 붙인 산문이다. " * 12
+    assert any("정해진 형태가 아님" in v and "확인" in v
+               for v in cpb.check_pr_body(body)), \
+        "`확인` 절이 무제한 산문 창고다 — 예산 게이트가 무력화된다"
 
 
 def test_exempt_section_not_length_budgeted():
@@ -307,23 +320,38 @@ def test_budget_overflow_cannot_hide_in_exempt_section():
     "Closes #12", "closes #12", "Fixes #3", "Resolves #7", "Refs #1",
     "#42", "- Refs #1", "Refs owner/repo#12",
     "pollux-o4-labs/vector-graph-ontology#21",
+    # 아래 3종은 적대 리뷰가 잡은 거짓양성이다 — GitHub이 정상 링크하는 표준 표기인데
+    # "한 줄에 참조 하나" 정규식이 리젝했다. 저자는 "이슈 참조만 쓸 수 있다"는 말을
+    # 듣는데 자기는 이슈 참조를 썼다 — 진단하지 않는 처방이었다.
+    "Closes #1, #2",
+    "Closes #1, closes #2",
+    "https://github.com/owner/repo/issues/1",
     "없음",
+    "N/A",
 ])
 def test_issue_ref_shapes_accepted(line):
-    """실제로 쓰이는 참조 형태는 통과해야 한다 — 못 쓰면 게이트가 아니라 족쇄다."""
+    """실제로 쓰이는 참조 형태는 통과해야 한다 — 못 쓰면 게이트가 아니라 족쇄다.
+
+    이 목록은 상상이 아니라 관측이어야 한다(적대 리뷰 지적: 값을 선언해 놓고 그
+    값을 안 재고 있었다). 새로 관측되는 표준 표기는 여기 추가한다.
+    """
     body = GOOD_BODY.replace("Closes #1", line)
     assert not any("관련 이슈" in v and "정해진 형태" in v
-                   for v in cpb.check_pr_body(body))
+                   for v in cpb.check_pr_body(body)), f"표준 표기 '{line}'이 리젝됐다"
 
 
-def test_bare_repo_ref_rejected():
-    """`repo#N`은 GitHub이 자동 링크하지 않는다 — 읽는 사람이 못 따라간다.
-
-    교차 레포 참조는 `owner/repo#N` 완전형만 받는다(그래야 실제 링크가 걸린다).
-    """
-    body = GOOD_BODY.replace("Closes #1", "vector-graph-ontology#21")
+@pytest.mark.parametrize("line", [
+    "Closes #1 그리고 이건 덧붙인 설명이다",   # 참조 옆 산문
+    "이건 그냥 산문이다",                      # 참조 없음
+    "vector-graph-ontology#21",                # 레포명만 — GitHub이 링크 안 함
+])
+def test_non_ref_lines_rejected(line):
+    """참조가 아니거나 참조에 산문을 덧댄 줄은 리젝 — 여기가 산문 창고가 되면 안 된다."""
+    body = GOOD_BODY.replace("Closes #1", line)
     assert any("관련 이슈" in v and "정해진 형태" in v
-               for v in cpb.check_pr_body(body))
+               for v in cpb.check_pr_body(body)), f"'{line}'이 통과했다"
+
+
 
 
 def test_change_type_rejects_prose():
