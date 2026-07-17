@@ -152,12 +152,13 @@ def is_git_ignored(path: Path) -> bool:
 def is_skipped_dir(d: Path) -> bool:
     """폴더를 순회·인덱스에서 건너뛸지 — 이름 규칙(시스템/사설) 또는 git-ignore(로컬 전용).
 
-    gitignore된 폴더(예: `snapshots/` 스크래치)는 체크아웃마다 존재가 갈린다.
-    인덱스에 실으면 그 폴더를 가진 사람과 아닌 사람이 서로 다른 README를 생성해
-    결과 자체가 오염되고, 그 drift가 --check를 막아 무관한 커밋까지 봉쇄한다.
+    gitignore된 폴더(로컬 스크래치 등)는 체크아웃마다 존재가 갈린다. 인덱스에 실으면
+    그 폴더를 가진 사람과 아닌 사람이 서로 다른 README를 생성해 결과 자체가 오염되고,
+    그 어긋남(drift)이 --check를 계속 비영으로 만들어 무관한 커밋까지 봉쇄한다.
     추적하지 않는(=관리 대상 아닌) 폴더는 생성·인덱스 양쪽에서 뺀다.
-    (원본: vector-graph-ontology#21 증상 2 — 레포가 달라 번호를 그대로 쓰면 엉뚱한
-    이슈를 가리키므로 레포명까지 적는다.)"""
+
+    (사고 원본: pollux-o4-labs/vector-graph-ontology#21 증상 2. 레포가 다르므로
+    번호만 쓰면 엉뚱한 이슈를 가리킨다 — owner/repo까지 적어야 링크가 걸린다.)"""
     return is_excluded_dir(d) or is_git_ignored(d)
 
 

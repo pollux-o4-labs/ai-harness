@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -231,22 +232,26 @@ def test_exempt_section_is_budget_exempt(name):
     assert name not in cpb.SECTION_BUDGETS
 
 
-def test_exempt_section_ignores_length():
-    """면제 섹션이 아무리 길어도 예산 위반이 나오면 안 된다."""
-    body = GOOD_BODY.replace("Closes #1", "가" * 5000)
-    assert not any("'## 관련 이슈'" in v for v in cpb.check_pr_body(body))
+def test_exempt_section_not_length_budgeted():
+    """면제 섹션은 글자수로 재지 않는다 — 대신 형태로 막는다(아래 형태 테스트).
+
+    참조가 여럿이라 길어져도 예산 위반은 안 나와야 한다.
+    """
+    many = "\n".join(f"Refs #{n}" for n in range(1, 40))
+    body = GOOD_BODY.replace("Closes #1", many)
+    assert not any("'## 관련 이슈'" in v and "예산" in v for v in cpb.check_pr_body(body))
 
 
 def test_exempt_section_excluded_from_budget_total(capsys):
     """면제 섹션은 총계에도 안 들어간다 — `확인`과 같은 이유."""
-    body = GOOD_BODY.replace("Closes #1", "가" * 5000)
+    many = "\n".join(f"Refs #{n}" for n in range(1, 40))
+    body = GOOD_BODY.replace("Closes #1", many)
     cpb._report(["dummy"], body)
     reported = capsys.readouterr().err
     prose_only = sum(
         cpb.measure(cpb.parse_sections(body).get(n, "")) for n in cpb.SECTION_BUDGETS
     )
     assert f"총 {prose_only}자" in reported
-    assert "5000" not in reported
 
 
 def test_unknown_section_still_rejected():
@@ -254,6 +259,106 @@ def test_unknown_section_still_rejected():
     body = GOOD_BODY.replace("## 관련 이슈", "## 아무거나")
     assert any("템플릿에 없는 섹션" in v and "아무거나" in v
                for v in cpb.check_pr_body(body))
+
+
+# --- 면제 섹션은 형태로 강제한다 ---------------------------------------------
+#
+# 예산을 안 먹이는 근거가 "정해진 형태라 저자가 줄일 몫이 아니다"이므로, 그 전제를
+# 코드가 강제하지 않으면 근거가 거짓이 된다. 실제로 이 게이트를 도입한 PR 자신이
+# 넘친 산문을 `관련 이슈`로 옮겨 예산 천장을 우회했다(적대 리뷰 실측). 아래가 그
+# 회피구를 닫은 것의 회귀다.
+
+def test_prose_in_exempt_section_rejected():
+    """면제 섹션에 산문을 부으면 리젝 — 이게 곧 예산 회피구를 막는 검사다."""
+    body = GOOD_BODY.replace("Closes #1", "이 변경은 아주 중요한 이유로 필요했다")
+    assert any("정해진 형태가 아님" in v and "관련 이슈" in v
+               for v in cpb.check_pr_body(body))
+
+
+def test_budget_overflow_cannot_hide_in_exempt_section():
+    """넘친 산문을 면제 섹션으로 옮겨도 살아나면 안 된다 — 예산의 존재 이유다."""
+    overflow = "가" * (cpb.SECTION_BUDGETS["변경"] + 200)
+    body = GOOD_BODY.replace("Closes #1", f"Closes #1\n\n{overflow}")
+    violations = cpb.check_pr_body(body)
+    assert any("정해진 형태가 아님" in v for v in violations), \
+        "면제 섹션이 무제한 산문 창고가 됐다 — 예산 게이트가 무력화된다"
+
+
+@pytest.mark.parametrize("line", [
+    "Closes #12", "closes #12", "Fixes #3", "Resolves #7", "Refs #1",
+    "#42", "- Refs #1", "Refs owner/repo#12",
+    "pollux-o4-labs/vector-graph-ontology#21",
+    "없음",
+])
+def test_issue_ref_shapes_accepted(line):
+    """실제로 쓰이는 참조 형태는 통과해야 한다 — 못 쓰면 게이트가 아니라 족쇄다."""
+    body = GOOD_BODY.replace("Closes #1", line)
+    assert not any("관련 이슈" in v and "정해진 형태" in v
+                   for v in cpb.check_pr_body(body))
+
+
+def test_bare_repo_ref_rejected():
+    """`repo#N`은 GitHub이 자동 링크하지 않는다 — 읽는 사람이 못 따라간다.
+
+    교차 레포 참조는 `owner/repo#N` 완전형만 받는다(그래야 실제 링크가 걸린다).
+    """
+    body = GOOD_BODY.replace("Closes #1", "vector-graph-ontology#21")
+    assert any("관련 이슈" in v and "정해진 형태" in v
+               for v in cpb.check_pr_body(body))
+
+
+def test_change_type_rejects_prose():
+    """`변경 유형`은 체크박스만 — 산문을 받으면 여기도 회피구가 된다."""
+    body = GOOD_BODY.replace("- [x] ✨ 새 기능", "새 기능을 넣었고 버그도 고쳤다")
+    assert any("정해진 형태가 아님" in v and "변경 유형" in v
+               for v in cpb.check_pr_body(body))
+
+
+# --- 템플릿 ↔ 스크립트 정합 --------------------------------------------------
+#
+# 템플릿 문구와 REQUIRED_CHECKS가 한 글자라도 어긋나면 그 레포의 **모든 PR이 머지
+# 불가**가 된다(check_checklist가 정확일치를 요구하므로). 그런데 템플릿 파일을 읽는
+# 테스트가 하나도 없어, 어느 쪽이 드리프트해도 스위트는 초록이었다 — 이 게이트가
+# 고치려는 버그와 정확히 같은 부류다(적대 리뷰 실측).
+#
+# 대조 대상이 **파일**이므로 자기참조가 아니다: 상수에서 케이스를 파생하되 상수와
+# 파일을 맞대므로, 한쪽만 지우면 반드시 깨진다.
+
+_TEMPLATE = _REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
+
+
+def _template_text() -> str:
+    return _TEMPLATE.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("item", cpb.REQUIRED_CHECKS)
+def test_every_required_check_exists_in_template_literally(item):
+    """필수 항목이 템플릿에 리터럴로 없으면 저자가 체크할 칸 자체가 없다."""
+    assert f"- [ ] {item}" in _template_text(), (
+        f"REQUIRED_CHECKS의 '{item}'가 템플릿에 없다 — 저자는 이 항목을 체크할 수 "
+        f"없고, 머지는 전량 체크를 요구하므로 모든 PR이 머지 불가가 된다."
+    )
+
+
+def test_template_has_no_check_absent_from_required():
+    """템플릿에만 있는 항목은 아무도 강제하지 않는 죽은 문구다."""
+    items = set(re.findall(r"^\s*-\s*\[[ xX]\]\s*(.+?)\s*$", _template_text(), re.M))
+    # 변경 유형의 체크박스(이모지 목록)는 REQUIRED_CHECKS 대상이 아니다.
+    checklist = {i for i in items if not i.startswith(("🐛", "✨", "♻️", "📝", "🔧"))}
+    assert checklist == set(cpb.REQUIRED_CHECKS)
+
+
+@pytest.mark.parametrize("name", tuple(cpb.SECTION_BUDGETS) + cpb.EXEMPT_SECTIONS)
+def test_every_gate_section_exists_in_template(name):
+    """게이트가 아는 섹션은 템플릿에 있어야 한다 — 없으면 저자가 못 쓴다."""
+    assert f"## {name}" in _template_text()
+
+
+def test_template_itself_declares_only_known_sections():
+    """템플릿에 게이트가 모르는 섹션이 있으면 그 템플릿으로 쓴 PR이 전부 리젝된다."""
+    sections = set(re.findall(r"^##\s+(.+?)\s*$", _template_text(), re.M))
+    allowed = set(cpb.SECTION_BUDGETS) | {cpb.CHECKLIST_SECTION} | set(cpb.EXEMPT_SECTIONS)
+    assert sections <= allowed, f"템플릿에 게이트가 모르는 섹션: {sections - allowed}"
 
 
 # --- create/merge 분리: 체크리스트 완료는 머지에서만 -------------------------

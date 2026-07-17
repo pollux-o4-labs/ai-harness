@@ -14,7 +14,7 @@
 | `scripts/install_hooks.py` | `hooks/`를 `.git/hooks/`로 설치. |
 | `hooks/pre-commit` | 커밋 전 `check_doc_form --staged` + `gen_readmes --check`. |
 | `.claude/settings.json` | `check_pr_body`를 Claude Code PreToolUse 훅으로 배선. |
-| `.github/PULL_REQUEST_TEMPLATE.md` | PR 본문 골격(4섹션 + 확인 체크리스트). |
+| `.github/PULL_REQUEST_TEMPLATE.md` | PR 본문 골격. 조직 공용 폼과 게이트 폼의 통합본 — 섹션 목록의 정본은 `check_pr_body.py`다. |
 | `docs/docs-format/*.md` | 유형별 **예산 폼**(줄수·80자·BLUF 상한). check_doc_form이 파싱하는 정본. |
 
 ## 설치
@@ -39,8 +39,13 @@ python3 scripts/install_hooks.py
 - `scripts/check_pr_body.py`의 `JARGON_TERMS` — 풀이를 강제할 내부 은어. **여기
   실린 목록은 vgo 예시**라 대상 레포 은어로 갈아야 한다(상습범만 등재).
 - `REQUIRED_CHECKS`·`SECTION_BUDGETS` — 확인 항목·섹션 분량.
+- `EXEMPT_SECTIONS`·`_EXEMPT_SHAPE` — 조직 공용 폼에서 온 골격 섹션(글자 예산 대신
+  **형태**로 강제). org마다 골격이 다르므로 대상 조직 템플릿에 맞춘다. 새 면제
+  섹션을 늘리면 `_EXEMPT_SHAPE`에 허용 형태도 **반드시 같이** 정해야 한다 — 형태
+  없는 면제 섹션은 곧 예산 회피구다(산문을 거기 옮기면 예산이 무력화된다).
 - `.github/PULL_REQUEST_TEMPLATE.md` — 위 `REQUIRED_CHECKS`와 문구가 **정확히**
-  일치해야 한다(한 글자만 달라도 전 PR 리젝).
+  일치해야 한다(한 글자만 달라도 전 PR 리젝). `tests/test_check_pr_body.py`가 이
+  정합을 파일 대조로 강제한다.
 
 ## 검증
 

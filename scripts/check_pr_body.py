@@ -50,17 +50,42 @@ SECTION_BUDGETS: dict[str, int] = {
 # 말라고 한 바로 그 형태이므로, 여기 체크가 곧 사실이라고 읽어서는 안 된다.
 CHECKLIST_SECTION = "확인"
 
-# 존재는 허용하되 글자 예산을 안 먹이는 섹션 — 조직 공용 템플릿(org `.github`
-# 레포의 pull_request_template.md)에서 온 표준 골격이다.
+# 글자 예산 대신 **형태**로 강제하는 섹션 — 조직 공용 템플릿(org `.github` 레포의
+# pull_request_template.md)에서 온 표준 골격이다.
 #
-# 예산을 안 먹이는 이유는 `확인`과 같다: 내용이 체크박스(변경 유형)거나 정해진
-# 한 줄(관련 이슈: `Closes #N`)이라 저자가 줄일 수 있는 몫이 아니다. 산문 예산에
-# 섞으면 저자가 못 건드리는 만큼 예산을 뺏는다.
+# 예산을 안 먹이는 근거는 "내용이 정해진 형태라 저자가 줄일 몫이 아니다"인데, 그
+# 전제를 말로만 두면 근거가 거짓이 된다 — 산문을 여기 옮겨 적는 순간 예산이 무제한
+# 우회된다(적대 리뷰 실측: 이 섹션을 도입한 PR 자신이 첫 사용자였다. 넘친 산문 한
+# 줄을 `관련 이슈`로 옮겨 300자 천장을 통과했고, 되돌리면 357자로 리젝됐다).
+#
+# 그래서 전제를 코드로 강제한다(_EXEMPT_SHAPE): 형태에 안 맞는 줄이 있으면 리젝.
+# 이러면 예산을 안 먹여도 산문이 못 들어오므로 면제 근거가 비로소 참이 된다.
 #
 # **필수가 아니다** — org 템플릿 자신이 "해당 없는 섹션은 지워도 됩니다"를 계약으로
-# 두므로, 여기서 존재를 강제하면 그 계약을 깬다. 이 집합의 역할은 강제가 아니라
-# "미지 섹션 리젝"에 걸리지 않게 하는 허용 목록이다.
+# 두므로, 여기서 존재를 강제하면 그 계약을 깬다. 강제하는 건 존재가 아니라 형태다.
 EXEMPT_SECTIONS: tuple[str, ...] = ("변경 유형", "관련 이슈")
+
+# `변경 유형`: 체크박스 줄만. 고정문구 목록이라 저자가 쓸 것은 x 표시뿐이다.
+_CHECKBOX_LINE = re.compile(r"^\s*-\s*\[[ xX]\]\s+\S")
+
+# `관련 이슈`: 이슈 참조 한 줄만. GitHub 종료 키워드(Closes/Fixes/Resolves)와 단순
+# 참조(Refs)를 받는다. 교차 레포 참조는 `owner/repo#N` 완전형만 받는다 — `repo#N`은
+# GitHub이 자동 링크하지 않아 읽는 사람이 따라갈 수 없다.
+_ISSUE_REF_LINE = re.compile(
+    r"^\s*-?\s*"
+    r"(?:(?:Clos(?:e|es|ed)|Fix(?:|es|ed)|Resolv(?:e|es|ed)|Refs?)\s+)?"
+    r"(?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#\d+\s*$",
+    re.IGNORECASE,
+)
+
+_NONE_LINE = re.compile(r"^\s*없음\s*$")
+
+# 섹션명 → (허용 형태, 위반 시 처방). 새 면제 섹션을 늘리면 여기 형태도 **반드시**
+# 같이 정한다 — 형태 없는 면제 섹션은 곧 예산 회피구다.
+_EXEMPT_SHAPE: dict[str, tuple[re.Pattern[str], str]] = {
+    "변경 유형": (_CHECKBOX_LINE, "체크박스 줄(`- [x] ...`)만 쓸 수 있다"),
+    "관련 이슈": (_ISSUE_REF_LINE, "이슈 참조(`Closes #12`·`Refs owner/repo#12`)만 쓸 수 있다"),
+}
 
 # 문장 종결 마침표 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
 # 스크립트는 stdlib only(훅에서 vgo 설치 없이 돈다)라 import로 합칠 수 없어
@@ -204,6 +229,30 @@ def check_sentences(sections: dict[str, str]) -> list[str]:
     return violations
 
 
+def check_exempt_shape(sections: dict[str, str]) -> list[str]:
+    """면제 섹션이 정해진 형태만 담았는지 — 예산을 안 먹이는 대가로 형태를 강제한다.
+
+    이 검사가 없으면 면제 섹션은 무제한 산문 창고가 되고, 저자는 예산이 넘칠 때마다
+    넘친 문장을 이리로 옮기면 된다(예산 게이트 무력화). 형태를 막으면 옮길 자리가
+    없어져 저자는 실제로 줄이는 수밖에 없다.
+    """
+    violations: list[str] = []
+    for name, (pattern, hint) in _EXEMPT_SHAPE.items():
+        if name not in sections:
+            continue
+        clean = strip_code(strip_html_comments(sections[name]))
+        for i, line in enumerate(clean.splitlines(), 1):
+            if not line.strip() or _NONE_LINE.match(line):
+                continue  # 빈 줄·'없음'은 어느 섹션에서나 유효한 내용이다
+            if not pattern.match(line):
+                violations.append(
+                    f"섹션 '## {name}' {i}번째 줄이 정해진 형태가 아님 — {hint}"
+                    f"(해당 없으면 '없음' 또는 섹션째 삭제). 이 섹션은 글자 예산이 "
+                    f"없으므로 산문을 담을 수 없다 — 설명은 '## 변경'에 예산 안에서 써라."
+                )
+    return violations
+
+
 def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[str]:
     """위반 목록을 반환한다(빈 리스트 = 통과).
 
@@ -230,6 +279,7 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
             )
 
     violations.extend(check_sentences(sections))
+    violations.extend(check_exempt_shape(sections))
     if require_checklist_complete:
         violations.extend(check_checklist(sections))
     else:
@@ -260,7 +310,9 @@ def _report(violations: list[str], body: str) -> None:
     for v in violations:
         print(f"  - {v}", file=sys.stderr)
     print(
-        "\n형식: .github/PULL_REQUEST_TEMPLATE.md · 근거: docs/rules/09-pr-body-structure.md",
+        # 처방은 실재하는 것만 가리킨다 — 없는 문서로 보내면 저자는 고칠 길을 잃고
+        # 게이트를 지운다. 섹션·예산의 정본은 이 스크립트이므로 템플릿만 가리킨다.
+        "\n형식: .github/PULL_REQUEST_TEMPLATE.md (섹션·예산·형태·용어의 정본은 이 스크립트)",
         file=sys.stderr,
     )
 
