@@ -1,4 +1,4 @@
-# BLUF: check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·은어 풀이·gh 명령 본문추출·훅 exit코드를 검증.
+# BLUF: check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·은어 풀이·gh 명령 본문추출·훅 exit코드·코멘트 게이트·머지 준비 dry-run을 검증.
 """tests/test_check_pr_body.py — PR 본문 게이트 단위테스트.
 
 DB도 LLM(언어모델)도 안 쓴다 — 순수 문자열 판정이라 어디서 돌려도 같은 결과다.
@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -20,6 +21,44 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 
 import check_pr_body as cpb  # noqa: E402
+
+# `docs/docs-format/pr-comment.md`는 이 코멘트 게이트를 처음 만든 저장소(vgo)의
+# 폼 파일 경로를 그대로 옮겨온 것이다 — repo별 특화 지점(README가 안내)이라 이
+# 저장소엔 아직 없다. 실 배포에서 그 부재는 fail-closed로 이어지는 게 설계대로지만
+# (check_pr_body.py 모듈 docstring), 코멘트 게이트·리뷰 근거 검사의 **로직 자체**를
+# 검증하는 테스트는 그 부재에 좌우되면 안 된다 — 아래 오토유즈 픽스처로 스텁 폼을
+# 물려 격리한다. 폼 파일이 없을 때의 fail-closed 자체는 별도 테스트
+# (test_comment_budget_missing_form_is_fail_closed·
+# test_review_evidence_missing_form_file_is_fail_closed)가 명시적으로 검증한다.
+_STUB_FORM_TEXT = (
+    "예산(둘 다 상한): 40줄 · 산문 한 줄 80자·한 문장.\n"
+    "헤더에 차수와 대상 커밋을 적는다 — `## 리뷰 종합 — 2차 (8c8f4f7)`.\n"
+)
+
+
+@pytest.fixture(autouse=True)
+def _stub_comment_form(monkeypatch, tmp_path):
+    form = tmp_path / "pr-comment.md"
+    form.write_text(_STUB_FORM_TEXT, encoding="utf-8")
+    monkeypatch.setattr(cpb, "_COMMENT_FORM_PATH", form)
+
+
+@pytest.fixture
+def _real_comment_form():
+    """`sh -c`로 별도 파이썬 프로세스를 띄우는 `wired_hook` 테스트는 위 monkeypatch가
+    안 닿는다(그 프로세스가 실제 경로에서 폼을 다시 읽는다) — 이 픽스처는 실제
+    `_COMMENT_FORM_PATH` 자리에 스텁 폼을 잠깐 놓고 테스트가 끝나면 지운다. 이미
+    파일이 있으면(이 저장소가 자체 폼을 갖췄으면) 그대로 두고 건드리지 않는다."""
+    path = _REPO_ROOT / "docs" / "docs-format" / "pr-comment.md"
+    if path.is_file():
+        yield path
+        return
+    path.write_text(_STUB_FORM_TEXT, encoding="utf-8")
+    try:
+        yield path
+    finally:
+        path.unlink()
+
 
 # 통과하는 본문 — 이 fixture가 곧 "예산이 살 만한가"의 실측이다. 예산을 조이다
 # 이게 못 통과하게 되면 예산이 틀린 것이다(게이트가 아니라 족쇄).
@@ -40,7 +79,6 @@ Closes #1
 
 - `scripts/check_pr_body.py` — 섹션 4개 필수 + 섹션별 글자예산 + 내부용어 첫등장 풀이 검사
 - `.claude/settings.json` — 위 검사기를 PR 생성 전 훅으로 배선(위반 시 리젝)
-- `docs/rules/09-pr-body-structure.md` — 조문(수치는 스크립트가 정본이라 재서술 안 함)
 
 ## 범위 밖
 
@@ -52,10 +90,10 @@ Closes #1
 
 ## 확인
 
-- [x] 가독성을 높이는 검수를 진행했다
+- [x] 가독성을 높이는 검수를 진행했다 (PR body 및 comment 대상)
   - [x] 과한 내부 은어 사용 검수했다
   - [x] 비전문가, 제3자도 쉽게 이해할 수 있도록 작성되었는지 검토했다
-- [x] 이 변경이 다른 문서를 낡게 하지 않았는지 검토했다
+- [x] 이 변경이 다른 문서를 낡게 하지 않았는지, 작업 중 발견한 기존 stale은 고쳤는지 검토했다 (PR이 영향을 주는 문서들)
   - [x] 바꾼 값·사실을 옮겨 적은 다른 문서도 같이 고쳤는지 확인했다
   - [x] 이 문서를 가리키던 링크·참조가 끊기지 않았는지 확인했다
   - [x] 영향받는 문서의 요약(맨 위 한 줄)이 여전히 맞는지 확인했다
@@ -192,10 +230,10 @@ def test_checklist_is_budget_exempt():
 
 # --- org 공용 템플릿 통합: 예산 면제 섹션 -----------------------------------
 #
-# org `.github` 레포의 공용 템플릿이 이미 13개 레포에 `변경 유형`·`관련 이슈`를
-# 뿌리고 있었는데, 게이트는 그 둘을 "템플릿에 없는 섹션"으로 리젝했다 — 공용
-# 템플릿으로 연 PR을 `gh pr merge`가 막는 상태였다(본문을 gh pr view로 끌어와
-# 검사하므로 웹에서 연 PR도 걸린다). 아래는 그 통합의 회귀 방지다.
+# org `.github` 레포의 공용 템플릿이 이미 다른 레포에 `관련 이슈`를 뿌리고
+# 있었는데, 게이트는 그걸 "템플릿에 없는 섹션"으로 리젝했다 — 공용 템플릿으로
+# 연 PR을 `gh pr merge`가 막는 상태였다(본문을 gh pr view로 끌어와 검사하므로
+# 웹에서 연 PR도 걸린다). 아래는 그 통합의 회귀 방지다.
 
 @pytest.mark.parametrize("name", cpb.EXEMPT_SECTIONS)
 def test_exempt_section_accepted(name):
@@ -319,7 +357,7 @@ def test_budget_overflow_cannot_hide_in_exempt_section():
 @pytest.mark.parametrize("line", [
     "Closes #12", "closes #12", "Fixes #3", "Resolves #7", "Refs #1",
     "#42", "- Refs #1", "Refs owner/repo#12",
-    "pollux-o4-labs/vector-graph-ontology#21",
+    "pollux-o4-labs/ai-harness#21",
     # 아래 3종은 적대 리뷰가 잡은 거짓양성이다 — GitHub이 정상 링크하는 표준 표기인데
     # "한 줄에 참조 하나" 정규식이 리젝했다. 저자는 "이슈 참조만 쓸 수 있다"는 말을
     # 듣는데 자기는 이슈 참조를 썼다 — 진단하지 않는 처방이었다.
@@ -343,15 +381,13 @@ def test_issue_ref_shapes_accepted(line):
 @pytest.mark.parametrize("line", [
     "Closes #1 그리고 이건 덧붙인 설명이다",   # 참조 옆 산문
     "이건 그냥 산문이다",                      # 참조 없음
-    "vector-graph-ontology#21",                # 레포명만 — GitHub이 링크 안 함
+    "ai-harness#21",                           # 레포명만 — GitHub이 링크 안 함
 ])
 def test_non_ref_lines_rejected(line):
     """참조가 아니거나 참조에 산문을 덧댄 줄은 리젝 — 여기가 산문 창고가 되면 안 된다."""
     body = GOOD_BODY.replace("Closes #1", line)
     assert any("관련 이슈" in v and "정해진 형태" in v
                for v in cpb.check_pr_body(body)), f"'{line}'이 통과했다"
-
-
 
 
 def test_change_type_rejects_prose():
@@ -375,53 +411,6 @@ def test_prose_cannot_hide_in_code_markup(payload, label):
     body = GOOD_BODY.replace("Closes #1", payload)
     assert any("정해진 형태가 아님" in v and "관련 이슈" in v
                for v in cpb.check_pr_body(body)), f"{label}로 산문을 숨길 수 있다"
-
-
-# --- 템플릿 ↔ 스크립트 정합 --------------------------------------------------
-#
-# 템플릿 문구와 REQUIRED_CHECKS가 한 글자라도 어긋나면 그 레포의 **모든 PR이 머지
-# 불가**가 된다(check_checklist가 정확일치를 요구하므로). 그런데 템플릿 파일을 읽는
-# 테스트가 하나도 없어, 어느 쪽이 드리프트해도 스위트는 초록이었다 — 이 게이트가
-# 고치려는 버그와 정확히 같은 부류다(적대 리뷰 실측).
-#
-# 대조 대상이 **파일**이므로 자기참조가 아니다: 상수에서 케이스를 파생하되 상수와
-# 파일을 맞대므로, 한쪽만 지우면 반드시 깨진다.
-
-_TEMPLATE = _REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
-
-
-def _template_text() -> str:
-    return _TEMPLATE.read_text(encoding="utf-8")
-
-
-@pytest.mark.parametrize("item", cpb.REQUIRED_CHECKS)
-def test_every_required_check_exists_in_template_literally(item):
-    """필수 항목이 템플릿에 리터럴로 없으면 저자가 체크할 칸 자체가 없다."""
-    assert f"- [ ] {item}" in _template_text(), (
-        f"REQUIRED_CHECKS의 '{item}'가 템플릿에 없다 — 저자는 이 항목을 체크할 수 "
-        f"없고, 머지는 전량 체크를 요구하므로 모든 PR이 머지 불가가 된다."
-    )
-
-
-def test_template_has_no_check_absent_from_required():
-    """템플릿에만 있는 항목은 아무도 강제하지 않는 죽은 문구다."""
-    items = set(re.findall(r"^\s*-\s*\[[ xX]\]\s*(.+?)\s*$", _template_text(), re.M))
-    # 변경 유형의 체크박스(이모지 목록)는 REQUIRED_CHECKS 대상이 아니다.
-    checklist = {i for i in items if not i.startswith(("🐛", "✨", "♻️", "📝", "🔧"))}
-    assert checklist == set(cpb.REQUIRED_CHECKS)
-
-
-@pytest.mark.parametrize("name", tuple(cpb.SECTION_BUDGETS) + cpb.EXEMPT_SECTIONS)
-def test_every_gate_section_exists_in_template(name):
-    """게이트가 아는 섹션은 템플릿에 있어야 한다 — 없으면 저자가 못 쓴다."""
-    assert f"## {name}" in _template_text()
-
-
-def test_template_itself_declares_only_known_sections():
-    """템플릿에 게이트가 모르는 섹션이 있으면 그 템플릿으로 쓴 PR이 전부 리젝된다."""
-    sections = set(re.findall(r"^##\s+(.+?)\s*$", _template_text(), re.M))
-    allowed = set(cpb.SECTION_BUDGETS) | {cpb.CHECKLIST_SECTION} | set(cpb.EXEMPT_SECTIONS)
-    assert sections <= allowed, f"템플릿에 게이트가 모르는 섹션: {sections - allowed}"
 
 
 # --- create/merge 분리: 체크리스트 완료는 머지에서만 -------------------------
@@ -566,13 +555,28 @@ def test_hook_broken_payload_is_nonblocking(monkeypatch, capsys):
 
 # --- gh pr merge 게이트 ------------------------------------------------------
 #
-# "머지는 사장 몫 — 감독·구현자는 머지하지 않는다"(docs/handoff/2-now-state.md)를
-# 처음 기계로 강제하는 절. 본문은 명령 인자가 아니라 `gh pr view --json body`
-# 능동 조회로 얻으므로, 실 gh CLI·네트워크·인증 없이 테스트하려면
-# subprocess.run 또는 cpb._fetch_pr_body를 스텁한다.
+# "머지는 사용자 몫 — 감독·구현자는 머지하지 않는다"를 처음 기계로 강제하는 절.
+# 본문은 명령 인자가 아니라 `gh pr view --json body,comments,headRefOid` 능동
+# 조회로 얻으므로, 실 gh CLI·네트워크·인증 없이 테스트하려면 subprocess.run 또는
+# cpb._fetch_pr_body를 스텁한다.
 
-def _stub_fetch(monkeypatch, *, body: str | None = None, reason: str | None = None):
-    monkeypatch.setattr(cpb, "_fetch_pr_body", lambda identifier: (body, reason))
+# `_fetch_pr_body`는 (body, reason)이 아니라 (data, reason)을 반환한다 — data는
+# body·comments·headRefOid를 담은 dict다(`--merge-check`·merge 훅 백스톱이
+# 체크리스트뿐 아니라 리뷰 종합 코멘트·현재 head SHA도 봐야 해서 조회를
+# 확장했다). 기본 comments/head_sha는 신선한 리뷰 종합 코멘트 1개로 채운다 —
+# 그 검사 자체(존재·신선도)를 노리는 테스트는 comments/head_sha를 직접 넘긴다.
+_DEFAULT_HEAD_SHA = "8c8f4f7"
+
+
+def _stub_fetch(monkeypatch, *, body: str | None = None, reason: str | None = None,
+                 comments: list[dict] | None = None, head_sha: str = _DEFAULT_HEAD_SHA):
+    if body is None:
+        data = None
+    else:
+        if comments is None:
+            comments = [{"body": f"## 리뷰 종합 — 1차 ({head_sha})\n\n근거."}]
+        data = {"body": body, "comments": comments, "headRefOid": head_sha}
+    monkeypatch.setattr(cpb, "_fetch_pr_body", lambda identifier: (data, reason))
 
 
 @pytest.mark.parametrize("argv,expected", [
@@ -607,10 +611,12 @@ def test_extract_body_from_merge_uses_fetch(monkeypatch):
 
 def test_extract_body_from_merge_passes_identifier_to_fetch(monkeypatch):
     captured: dict[str, str | None] = {}
-    monkeypatch.setattr(
-        cpb, "_fetch_pr_body",
-        lambda identifier: (captured.setdefault("id", identifier), (GOOD_BODY, None))[1],
-    )
+
+    def fake_fetch(identifier):
+        captured["id"] = identifier
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
     cpb.extract_body_from_merge_command("gh pr merge 42 --squash")
     assert captured["id"] == "42"
 
@@ -618,10 +624,12 @@ def test_extract_body_from_merge_passes_identifier_to_fetch(monkeypatch):
 def test_extract_body_from_merge_omitted_identifier_passes_none(monkeypatch):
     """PR 번호 생략(현재 브랜치 추론) — gh pr view에 식별자 없이 넘어가야 한다."""
     captured: dict[str, str | None] = {}
-    monkeypatch.setattr(
-        cpb, "_fetch_pr_body",
-        lambda identifier: (captured.setdefault("id", identifier), (GOOD_BODY, None))[1],
-    )
+
+    def fake_fetch(identifier):
+        captured["id"] = identifier
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
     cpb.extract_body_from_merge_command("gh pr merge --squash")
     assert captured["id"] is None
 
@@ -638,11 +646,17 @@ def test_fetch_pr_body_success(monkeypatch):
 
     def fake_run(cmd, **kwargs):
         calls["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"body": GOOD_BODY}), stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 0,
+            stdout=json.dumps({"body": GOOD_BODY, "comments": [], "headRefOid": "abc1234"}),
+            stderr="",
+        )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    assert cpb._fetch_pr_body("42") == (GOOD_BODY, None)
-    assert calls["cmd"] == ["gh", "pr", "view", "42", "--json", "body"]
+    data, reason = cpb._fetch_pr_body("42")
+    assert reason is None
+    assert data == {"body": GOOD_BODY, "comments": [], "headRefOid": "abc1234"}
+    assert calls["cmd"] == ["gh", "pr", "view", "42", "--json", "body,comments,headRefOid"]
 
 
 def test_fetch_pr_body_no_identifier_omits_arg(monkeypatch):
@@ -650,11 +664,13 @@ def test_fetch_pr_body_no_identifier_omits_arg(monkeypatch):
 
     def fake_run(cmd, **kwargs):
         calls["cmd"] = cmd
-        return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"body": "x"}), stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps({"body": "x", "comments": [], "headRefOid": "y"}), stderr="",
+        )
 
     monkeypatch.setattr(subprocess, "run", fake_run)
     cpb._fetch_pr_body(None)
-    assert calls["cmd"] == ["gh", "pr", "view", "--json", "body"]
+    assert calls["cmd"] == ["gh", "pr", "view", "--json", "body,comments,headRefOid"]
 
 
 def test_fetch_pr_body_gh_failure_is_fail_closed(monkeypatch):
@@ -662,8 +678,8 @@ def test_fetch_pr_body_gh_failure_is_fail_closed(monkeypatch):
         return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="no pull requests found")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    body, reason = cpb._fetch_pr_body("999")
-    assert body is None
+    data, reason = cpb._fetch_pr_body("999")
+    assert data is None
     assert "못 들여다봄" in reason
 
 
@@ -672,8 +688,8 @@ def test_fetch_pr_body_bad_json_is_fail_closed(monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout="not json", stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    body, reason = cpb._fetch_pr_body("42")
-    assert body is None and reason is not None
+    data, reason = cpb._fetch_pr_body("42")
+    assert data is None and reason is not None
 
 
 def test_fetch_pr_body_empty_body_is_fail_closed(monkeypatch):
@@ -681,8 +697,8 @@ def test_fetch_pr_body_empty_body_is_fail_closed(monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps({"body": ""}), stderr="")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    body, reason = cpb._fetch_pr_body("42")
-    assert body is None and reason is not None
+    data, reason = cpb._fetch_pr_body("42")
+    assert data is None and reason is not None
 
 
 def test_fetch_pr_body_gh_binary_missing_is_fail_closed(monkeypatch):
@@ -691,8 +707,8 @@ def test_fetch_pr_body_gh_binary_missing_is_fail_closed(monkeypatch):
         raise FileNotFoundError("gh: command not found")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    body, reason = cpb._fetch_pr_body("42")
-    assert body is None and reason is not None
+    data, reason = cpb._fetch_pr_body("42")
+    assert data is None and reason is not None
 
 
 # --- 훅 exit 코드: gh pr merge ------------------------------------------------
@@ -808,11 +824,20 @@ def test_wired_hook_does_not_swallow_rejection(tmp_path):
 # "새 코드 경로가 그 기존 배선을 통해 실제로 도달 가능한가"는 별도로 증명해야
 # 한다 — 이 서브프로세스는 monkeypatch가 안 닿으므로 PATH에 가짜 gh를 심는다.
 
-def _make_fake_gh(tmp_path: Path, response_body: str) -> Path:
-    """`gh pr view ... --json body` 호출에 고정 JSON을 돌려주는 가짜 gh.
-    인자를 안 가리고 항상 같은 응답을 낸다 — 배선 자체 검증용이라 이걸로 충분."""
+def _make_fake_gh(tmp_path: Path, response_body: str, *,
+                   comments: list[dict] | None = None, head_sha: str = "8c8f4f7") -> Path:
+    """`gh pr view ... --json body,comments,headRefOid` 호출에 고정 JSON을
+    돌려주는 가짜 gh. 인자를 안 가리고 항상 같은 응답을 낸다 — 배선 자체
+    검증용이라 이걸로 충분. comments 생략 시 신선한 리뷰 종합 코멘트 1개를
+    기본으로 채운다(그 존재·신선도 자체를 노리는 테스트는 comments를 직접
+    넘긴다)."""
+    if comments is None:
+        comments = [{"body": f"## 리뷰 종합 — 1차 ({head_sha})\n\n근거."}]
     payload = tmp_path / "gh_response.json"
-    payload.write_text(json.dumps({"body": response_body}), encoding="utf-8")
+    payload.write_text(
+        json.dumps({"body": response_body, "comments": comments, "headRefOid": head_sha}),
+        encoding="utf-8",
+    )
     fake_gh = tmp_path / "gh"
     fake_gh.write_text(f'#!/usr/bin/env bash\ncat "{payload}"\n', encoding="utf-8")
     fake_gh.chmod(0o755)
@@ -833,6 +858,436 @@ def test_wired_hook_blocks_merge_with_bad_body(tmp_path):
     assert _run_wired_hook_with_fake_gh("gh pr merge 42", fake_gh_dir) == 2
 
 
-def test_wired_hook_allows_merge_with_good_body(tmp_path):
+def test_wired_hook_allows_merge_with_good_body(tmp_path, _real_comment_form):
     fake_gh_dir = _make_fake_gh(tmp_path, GOOD_BODY)
     assert _run_wired_hook_with_fake_gh("gh pr merge 42", fake_gh_dir) == 0
+
+
+def test_wired_hook_blocks_merge_when_review_evidence_missing(tmp_path, _real_comment_form):
+    """체크리스트가 전량 체크돼도 리뷰 종합 코멘트가 없으면 리젝(백스톱).
+
+    `_real_comment_form` 없이는 폼 파일 부재로 인한 fail-closed와 구분이 안 돼
+    "위반 없어서 통과할 뻔한 것"과 "의도한 위반"이 우연히 같은 exit 2로 섞인다
+    (홀로우 그린, 적대 리뷰 지적) — 폼을 실제로 놓아 이 테스트가 노리는 위반
+    (코멘트 없음)이 실제 사유가 되게 한다."""
+    fake_gh_dir = _make_fake_gh(tmp_path, GOOD_BODY, comments=[])
+    assert _run_wired_hook_with_fake_gh("gh pr merge 42", fake_gh_dir) == 2
+
+
+def test_wired_hook_blocks_merge_when_review_evidence_stale(tmp_path, _real_comment_form):
+    """최신 코멘트의 SHA가 현재 head와 다르면 리젝 — 옛 코멘트로 영구통과 방지."""
+    fake_gh_dir = _make_fake_gh(
+        tmp_path, GOOD_BODY,
+        comments=[{"body": "## 리뷰 종합 — 1차 (0000000)\n\n낡은 근거."}],
+        head_sha="1111111",
+    )
+    assert _run_wired_hook_with_fake_gh("gh pr merge 42", fake_gh_dir) == 2
+
+
+# --- 리뷰 근거 존재·신선도(check_review_evidence) -----------------------------
+#
+# 규칙 11 제1조("근거 없는 체크 금지")를 처음 기계로 태우는 검사 — 체크리스트
+# 완료만으론 통과 못 하게 하는 축이다. 헤더 접두어는 pr-comment.md의 예시
+# 문구에서 파싱한다(load_review_header_prefix) — 여기 하드코딩하지 않는다.
+
+def test_review_evidence_passes_with_fresh_comment():
+    comments = [{"body": "## 리뷰 종합 — 1차 (abc1234)\n\n근거."}]
+    assert cpb.check_review_evidence(comments, "abc1234def") == []
+
+
+def test_review_evidence_rejects_no_matching_comment():
+    violations = cpb.check_review_evidence([{"body": "그냥 코멘트."}], "abc1234")
+    assert any("리뷰 종합 코멘트 없음" in v for v in violations)
+
+
+def test_review_evidence_rejects_stale_sha():
+    """최신 코멘트의 SHA가 현재 head와 다르면 리젝 — 옛 코멘트로 영구통과 방지."""
+    comments = [{"body": "## 리뷰 종합 — 1차 (abc1234)\n\n근거."}]
+    violations = cpb.check_review_evidence(comments, "9999999")
+    assert any("리뷰 근거가 낡음" in v for v in violations)
+
+
+def test_review_evidence_uses_latest_matching_comment():
+    """코멘트가 여럿이면 목록의 마지막(최신) 매치만 본다 — 옛 판정이 최신
+    판정을 가리면 안 된다."""
+    comments = [
+        {"body": "## 리뷰 종합 — 1차 (0000000)\n\n낡은 근거."},
+        {"body": "그 사이 무관한 코멘트."},
+        {"body": "## 리뷰 종합 — 2차 (abc1234)\n\n최신 근거."},
+    ]
+    assert cpb.check_review_evidence(comments, "abc1234def") == []
+
+
+def test_review_evidence_missing_form_file_is_fail_closed(monkeypatch):
+    """폼 파일을 못 찾으면 잴 자가 없어서 통과가 아니라 리젝한다(fail-closed)."""
+    monkeypatch.setattr(cpb, "_COMMENT_FORM_PATH", Path("/nonexistent/pr-comment.md"))
+    violations = cpb.check_review_evidence(
+        [{"body": "## 리뷰 종합 — 1차 (abc1234)"}], "abc1234"
+    )
+    assert violations != []
+
+
+# --- --merge-check dry-run ---------------------------------------------------
+#
+# `gh pr merge`를 부르지 않는다 — check_merge_readiness의 3종 판정(체크리스트
+# 전량 + 리뷰 종합 코멘트 존재·신선도)을 사람이 미리 돌려보는 CLI 진입점이다.
+
+def test_check_merge_readiness_passes_when_all_conditions_met(monkeypatch):
+    _stub_fetch(monkeypatch, body=GOOD_BODY)
+    assert cpb.check_merge_readiness("42") == []
+
+
+def test_check_merge_readiness_rejects_when_review_evidence_missing(monkeypatch):
+    _stub_fetch(monkeypatch, body=GOOD_BODY, comments=[])
+    violations = cpb.check_merge_readiness("42")
+    assert any("리뷰 종합 코멘트 없음" in v for v in violations)
+
+
+def test_check_merge_readiness_rejects_stale_review_evidence(monkeypatch):
+    _stub_fetch(
+        monkeypatch, body=GOOD_BODY,
+        comments=[{"body": "## 리뷰 종합 — 1차 (deadbee)\n\n근거."}],
+        head_sha="1111111",
+    )
+    violations = cpb.check_merge_readiness("42")
+    assert any("리뷰 근거가 낡음" in v for v in violations)
+
+
+def test_check_merge_readiness_rejects_incomplete_checklist(monkeypatch):
+    """리뷰 근거가 신선해도 체크리스트가 전량 체크 안 되면 여전히 리젝."""
+    body = GOOD_BODY.replace("[x] 가독성", "[ ] 가독성")
+    _stub_fetch(monkeypatch, body=body)
+    violations = cpb.check_merge_readiness("42")
+    assert any("체크 안 됨" in v for v in violations)
+
+
+def test_check_merge_readiness_fetch_failure_is_fail_closed(monkeypatch):
+    _stub_fetch(monkeypatch, reason="gh pr view 실패 — 본문을 못 들여다봄(인증 안 됨)")
+    violations = cpb.check_merge_readiness("999")
+    assert any("못 들여다봄" in v for v in violations)
+
+
+def test_merge_check_cli_pass_prints_ready_message(monkeypatch, capsys):
+    _stub_fetch(monkeypatch, body=GOOD_BODY)
+    assert cpb.main(["--merge-check", "42"]) == 0
+    assert "리뷰 근거 확인됨" in capsys.readouterr().out
+
+
+def test_merge_check_cli_fail_reports_violations(monkeypatch, capsys):
+    _stub_fetch(monkeypatch, body=GOOD_BODY, comments=[])
+    assert cpb.main(["--merge-check", "42"]) == 1
+    assert "머지 준비 안 됨" in capsys.readouterr().err
+
+
+# --- gh pr comment 게이트 ----------------------------------------------------
+#
+# 코멘트는 리뷰 항목별 근거 기록이지 PR 본문이 아니다 — 섹션 골격·체크리스트는
+# 적용하지 않는다(감독 최초 지시). 단, 내부 용어 풀이(JARGON_TERMS)는 코멘트도
+# PR에 남는 글이라 적용한다(감독 정정 — 체크리스트 은어 항목의 적용범위가
+# "PR에 작성된 글"이라 코멘트도 포함된다). 강제 축은 줄수·줄자수·문장구조·은어뿐.
+
+GOOD_COMMENT = """\
+- 요약 섹션 근거: 실측 143자, 예산 150자 이내.
+- 변경 섹션 근거: 파일 3개 수정, 신규 코드 없음.
+- 검증 근거: pytest 그린, exit 0.
+"""
+
+
+def test_comment_good_form_passes():
+    """섹션 골격·체크리스트 없이도 통과해야 한다 — 코멘트는 자유 형식이다."""
+    assert cpb.check_comment(GOOD_COMMENT) == []
+
+
+def test_comment_long_line_rejected():
+    """80자 초과 코멘트 줄은 리젝된다."""
+    line_max = cpb.load_comment_budgets()["line_chars"]
+    body = GOOD_COMMENT + f"- {'가' * (line_max + 1)}\n"
+    violations = cpb.check_comment(body)
+    assert any(f"> {line_max}자" in v for v in violations)
+
+
+def test_comment_multiple_sentences_rejected():
+    """한 줄에 문장 둘(마침표 뒤 문장이 이어짐)이면 리젝 — 한 줄 한 문장."""
+    body = GOOD_COMMENT + "- 첫 사항이다. 둘째 사항이 한 줄에 붙었다.\n"
+    assert any("문장이 여럿" in v for v in cpb.check_comment(body))
+
+
+def test_comment_code_fence_line_exempt():
+    """펜스 안의 긴 줄·문장 여럿은 면제 — 명령·출력 인용은 쪼개면 깨진다."""
+    fenced = "```\n" + ("x" * 90) + "\n첫 문장이다. 둘째 문장.\n```\n"
+    assert cpb.check_comment(GOOD_COMMENT + fenced) == []
+
+
+def test_comment_too_many_lines_rejected():
+    """40줄(폼 예산) 초과 코멘트는 총량 위반으로 리젝된다."""
+    lines_max = cpb.load_comment_budgets()["max_lines"]
+    body = "\n".join(f"- 항목 {i} 확인." for i in range(lines_max + 5))
+    violations = cpb.check_comment(body)
+    assert any(f"> {lines_max}줄" in v for v in violations)
+
+
+def test_comment_jargon_without_gloss_rejected():
+    """JARGON_TERMS의 용어를 괄호 풀이 없이 쓰면 리젝 — 기존 검사기 재사용."""
+    body = GOOD_COMMENT + "- 폴백 경로 확인.\n"
+    assert any("'폴백'에 풀이가 없음" in v for v in cpb.check_comment(body))
+
+
+def test_comment_jargon_with_gloss_passes():
+    """괄호 풀이가 붙으면 통과."""
+    body = GOOD_COMMENT + "- 폴백(대체 경로) 확인.\n"
+    assert cpb.check_comment(body) == []
+
+
+def test_comment_budget_missing_form_is_fail_closed(monkeypatch):
+    """폼 파일을 못 찾으면 잴 자가 없어서 통과가 아니라 리젝한다(fail-closed)."""
+    monkeypatch.setattr(cpb, "_COMMENT_FORM_PATH", Path("/nonexistent/pr-comment.md"))
+    assert cpb.check_comment(GOOD_COMMENT) != []
+
+
+@pytest.mark.parametrize("cmd", [
+    'gh pr comment 42 --body-file {p}',
+    'gh pr comment 42 --body-file={p}',
+    'gh pr comment 42 -F {p}',
+    'cd /repo && gh pr comment 42 --body-file {p}',
+])
+def test_extract_body_from_comment_command_file(tmp_path, cmd):
+    p = tmp_path / "comment.md"
+    p.write_text(GOOD_COMMENT, encoding="utf-8")
+    body, reason = cpb.extract_body_from_comment_command(cmd.format(p=p))
+    assert reason is None
+    assert body == GOOD_COMMENT
+
+
+def test_extract_body_from_comment_inline():
+    body, reason = cpb.extract_body_from_comment_command(
+        'gh pr comment 42 --body "짧은 코멘트"'
+    )
+    assert (body, reason) == ("짧은 코멘트", None)
+
+
+@pytest.mark.parametrize("cmd", [
+    "git status",
+    "gh pr create --body x",
+    "gh pr merge 42",
+    "gh issue comment 42 --body x",
+    "gh pr view 42",
+])
+def test_comment_non_target_commands_are_not_inspected(cmd):
+    """검사 대상이 아니면 (None, None) — 훅이 통과시켜야 한다."""
+    assert cpb.extract_body_from_comment_command(cmd) == (None, None)
+
+
+def test_comment_uninspectable_call_is_fail_closed():
+    """본문 플래그 없는 호출(에디터 대화형 등)은 리젝 사유가 붙는다."""
+    body, reason = cpb.extract_body_from_comment_command("gh pr comment 42")
+    assert body is None and reason is not None
+
+
+def test_hook_allows_good_comment(monkeypatch, tmp_path):
+    p = tmp_path / "comment.md"
+    p.write_text(GOOD_COMMENT, encoding="utf-8")
+    assert _run_hook(monkeypatch, f"gh pr comment 42 --body-file {p}") == 0
+
+
+def test_hook_blocks_bad_comment(monkeypatch, tmp_path, capsys):
+    p = tmp_path / "comment.md"
+    p.write_text("가" * 90 + "\n", encoding="utf-8")
+    assert _run_hook(monkeypatch, f"gh pr comment 42 --body-file {p}") == 2
+    assert "리젝" in capsys.readouterr().err
+
+
+def test_hook_blocks_comment_without_body(monkeypatch):
+    assert _run_hook(monkeypatch, "gh pr comment 42") == 2
+
+
+# --- 기존 경로(create·merge) 회귀 고정 — comment 추가가 안 건드렸는지 --------
+
+def test_hook_does_not_call_comment_check_for_pr_create(monkeypatch, tmp_path):
+    """gh pr create는 create 경로로만 처리된다 — comment 검사기가 안 불린다."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    calls: list[str] = []
+    monkeypatch.setattr(cpb, "check_comment", lambda body: calls.append(body) or [])
+    assert _run_hook(monkeypatch, f"gh pr create --body-file {p}") == 0
+    assert calls == []
+
+
+def test_hook_does_not_call_pr_body_check_for_comment(monkeypatch, tmp_path):
+    """gh pr comment는 comment 경로로만 처리된다 — 섹션 게이트가 안 불린다."""
+    p = tmp_path / "comment.md"
+    p.write_text(GOOD_COMMENT, encoding="utf-8")
+    calls: list[str] = []
+    monkeypatch.setattr(cpb, "check_pr_body", lambda body, **kw: calls.append(body) or [])
+    assert _run_hook(monkeypatch, f"gh pr comment 42 --body-file {p}") == 0
+    assert calls == []
+
+
+def test_wired_hook_allows_good_comment(tmp_path, _real_comment_form):
+    p = tmp_path / "comment.md"
+    p.write_text(GOOD_COMMENT, encoding="utf-8")
+    assert _run_wired_hook(f"gh pr comment 42 --body-file {p}", _REPO_ROOT) == 0
+
+
+def test_wired_hook_blocks_bad_comment(tmp_path, _real_comment_form):
+    """`_real_comment_form` 없이는 폼 파일 부재로 인한 fail-closed와 구분이 안 돼
+    "위반 없어서 통과할 뻔한 것"과 "의도한 위반"(80자 초과)이 우연히 같은 exit 2로
+    섞인다(홀로우 그린, 적대 리뷰 지적) — 폼을 실제로 놓아 이 테스트가 노리는
+    위반이 실제 사유가 되게 한다."""
+    p = tmp_path / "comment.md"
+    p.write_text("가" * 90 + "\n", encoding="utf-8")
+    assert _run_wired_hook(f"gh pr comment 42 --body-file {p}", _REPO_ROOT) == 2
+
+
+# --- CRITICAL: shlex는 셸 구조를 모른다 — 오탐 매칭 자기진단 ------------------
+#
+# 실사고: 파이썬 heredoc 안의 주석 한 줄("# gh pr comment preceded by env
+# assignment")이 shlex.split 결과에서 "gh","pr","comment"가 인접해 gh 호출로
+# 오인됐고, 실제 --body가 없어 exit 2로 리젝됐다(gh를 호출하지도 않은 명령이
+# 막힘). **근본 해결은 불가능하다** — shlex는 진짜 셸 파서가 아니라 주석·
+# heredoc·문자열 안 평문을 구별 못 한다. 대신: (1) --body/--body-file 탐색을
+# 매칭된 gh 호출과 같은 셸 세그먼트로 좁히고(국소성), (2) 리젝 사유에 어떤
+# 토큰을 gh 호출로 인식했는지 노출해 오탐 자기진단 비용을 줄인다.
+
+def test_comment_false_positive_in_prose_is_diagnosable():
+    """오탐(주석 속 평문)은 여전히 리젝되지만(근본 해결 불가), 사유에 매칭
+    위치가 드러나야 한다 — 사람이 즉시 오탐임을 판별할 수 있게."""
+    command = "echo start\n# gh pr comment preceded by env assignment\necho end"
+    body, reason = cpb.extract_body_from_comment_command(command)
+    assert body is None
+    assert reason is not None
+    argv = shlex.split(command)
+    gh_idx = argv.index("gh")
+    assert str(gh_idx) in reason
+    assert repr(argv[gh_idx:gh_idx + 3]) in reason
+
+
+def test_comment_body_flag_before_match_is_not_used(tmp_path):
+    """국소성: 매칭보다 앞선(무관한 다른 명령의) --body-file은 이 gh 호출
+    소속으로 오인해선 안 된다 — 회귀: 예전엔 argv 전체를 인덱스 0부터 스캔해
+    이런 파일 내용을 엉뚱하게 본문으로 썼다."""
+    leftover = tmp_path / "leftover.md"
+    leftover.write_text("- 무관한 내용입니다.\n", encoding="utf-8")
+    command = f"cat --body-file {leftover} && gh pr comment 42"
+    body, reason = cpb.extract_body_from_comment_command(command)
+    assert body is None  # leftover.md 내용을 본문으로 쓰면 안 된다
+    assert reason is not None  # 대신 '본문 없음'으로 fail-closed
+
+
+def test_create_body_flag_after_next_segment_is_not_used(tmp_path):
+    """국소성: 매칭된 gh 호출 뒤 `&&`로 이어진 무관한 다음 명령의 --body도
+    이 호출 소속이 아니다."""
+    command = 'gh pr create 2>/dev/null && echo unrelated --body "엉뚱한 본문"'
+    body, reason = cpb.extract_body_from_command(command)
+    assert body is None
+    assert reason is not None
+
+
+# --- HIGH-1: 미닫힘 코드펜스가 EOF까지 검사를 면제하면 안 된다 ---------------
+
+def test_comment_unterminated_fence_is_not_exempt():
+    """미닫힘 코드펜스는 EOF까지 검사를 면제해선 안 된다(뮤테이션 방어 회귀) —
+    닫아도 안 닫아도 결과가 같으면 우회 통로가 된다. 재현: 이 게이트가 막으려던
+    긴 산문 사고와 같은 모양(긴 줄 + 문장 여럿)을 펜스로 감싸면 통과해선 안 된다."""
+    body = "- 정상 근거 줄입니다.\n```\n" + (("x" * 200) + ". 두번째 문장.\n") * 5
+    violations = cpb.check_comment(body)
+    assert violations != []
+    assert any("닫" in v for v in violations)  # 미닫힘 자체가 위반으로 잡혀야 한다
+    # 미닫힘 구간은 면제되지 않으므로 안의 문장·줄자수 위반도 같이 잡혀야 한다.
+    assert any("문장이 여럿" in v for v in violations)
+    assert any("자 >" in v for v in violations)
+
+
+def test_comment_terminated_fence_pair_before_unterminated_one_still_exempt():
+    """닫힌 펜스 쌍은 그대로 면제되고, 그 뒤에 새로 열려 안 닫힌 펜스만 위반이
+    잡혀야 한다 — 미닫힘 판정이 이전의 정상 닫힌 블록까지 덮어쓰면 안 된다."""
+    closed = "```\n" + ("y" * 90) + "\n```\n"  # GOOD_COMMENT 뒤 4~6번째 줄, 닫힌 쌍
+    unterminated = "```\n" + (("x" * 200) + ". 두번째 문장.\n")  # 7~8번째 줄
+    body = GOOD_COMMENT + closed + unterminated
+    violations = cpb.check_comment(body)
+    assert len(violations) == 3  # 미닫힘 1건 + 8번째 줄의 문장·길이 위반 2건
+    assert any("닫" in v for v in violations)
+    assert any("문장이 여럿" in v for v in violations)
+    assert any("자 >" in v for v in violations)
+    # 닫힌 쌍 안(5번째 줄, y*90)은 그대로 면제라 그 줄을 지목하는 위반이 없어야 한다.
+    assert not any(v.startswith("코멘트 5번째 줄") for v in violations)
+
+
+# --- HIGH-2: 전역 플래그(--repo/-R)가 gh 바로 뒤에 오면 놓친다 ----------------
+
+def test_comment_recognizes_global_repo_flag():
+    """`gh --repo o/r pr comment ...`처럼 전역 플래그가 subcommand 앞에 와도
+    인식해야 한다 — 인접 3토큰 고정 매칭은 이걸 놓쳐 조용히 샌다(무검사 통과)."""
+    body, reason = cpb.extract_body_from_comment_command(
+        'gh --repo owner/repo pr comment 42 --body "짧은 코멘트"'
+    )
+    assert (body, reason) == ("짧은 코멘트", None)
+
+
+def test_create_recognizes_global_repo_flag_short_form(tmp_path):
+    """`-R` 단축형도 같은 함수라 create도 같이 고쳐진다(선재 결함)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    body, reason = cpb.extract_body_from_command(f"gh -R o/r pr create --body-file {p}")
+    assert reason is None
+    assert body == GOOD_BODY
+
+
+def test_merge_recognizes_global_repo_flag(monkeypatch):
+    """merge도 같은 매칭 함수를 쓰므로 같이 고쳐진다(선재 결함)."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier):
+        captured["id"] = identifier
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    body, reason = cpb.extract_body_from_merge_command("gh --repo o/r pr merge 42")
+    assert (body, reason) == (GOOD_BODY, None)
+    assert captured["id"] == "42"
+
+
+# --- 템플릿 ↔ 스크립트 정합 --------------------------------------------------
+#
+# 템플릿 문구와 REQUIRED_CHECKS가 한 글자라도 어긋나면 그 레포의 **모든 PR이 머지
+# 불가**가 된다(check_checklist가 정확일치를 요구하므로). 그런데 템플릿 파일을 읽는
+# 테스트가 하나도 없으면, 어느 쪽이 드리프트해도 스위트는 초록이다 — 이 게이트가
+# 고치려는 버그와 정확히 같은 부류다(적대 리뷰 실측).
+#
+# 대조 대상이 **파일**이므로 자기참조가 아니다: 상수에서 케이스를 파생하되 상수와
+# 파일을 맞대므로, 한쪽만 지우면 반드시 깨진다.
+
+_TEMPLATE = _REPO_ROOT / ".github" / "PULL_REQUEST_TEMPLATE.md"
+
+
+def _template_text() -> str:
+    return _TEMPLATE.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("item", cpb.REQUIRED_CHECKS)
+def test_every_required_check_exists_in_template_literally(item):
+    """필수 항목이 템플릿에 리터럴로 없으면 저자가 체크할 칸 자체가 없다."""
+    assert f"- [ ] {item}" in _template_text(), (
+        f"REQUIRED_CHECKS의 '{item}'가 템플릿에 없다 — 저자는 이 항목을 체크할 수 "
+        f"없고, 머지는 전량 체크를 요구하므로 모든 PR이 머지 불가가 된다."
+    )
+
+
+def test_template_has_no_check_absent_from_required():
+    """템플릿에만 있는 항목은 아무도 강제하지 않는 죽은 문구다."""
+    items = set(re.findall(r"^\s*-\s*\[[ xX]\]\s*(.+?)\s*$", _template_text(), re.M))
+    # 변경 유형의 체크박스(이모지 목록)는 REQUIRED_CHECKS 대상이 아니다.
+    checklist = {i for i in items if not i.startswith(("🐛", "✨", "♻️", "📝", "🔧"))}
+    assert checklist == set(cpb.REQUIRED_CHECKS)
+
+
+@pytest.mark.parametrize("name", tuple(cpb.SECTION_BUDGETS) + cpb.EXEMPT_SECTIONS)
+def test_every_gate_section_exists_in_template(name):
+    """게이트가 아는 섹션은 템플릿에 있어야 한다 — 없으면 저자가 못 쓴다."""
+    assert f"## {name}" in _template_text()
+
+
+def test_template_itself_declares_only_known_sections():
+    """템플릿에 게이트가 모르는 섹션이 있으면 그 템플릿으로 쓴 PR이 전부 리젝된다."""
+    sections = set(re.findall(r"^##\s+(.+?)\s*$", _template_text(), re.M))
+    allowed = set(cpb.SECTION_BUDGETS) | {cpb.CHECKLIST_SECTION} | set(cpb.EXEMPT_SECTIONS)
+    assert sections <= allowed, f"템플릿에 게이트가 모르는 섹션: {sections - allowed}"
