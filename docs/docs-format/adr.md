@@ -9,6 +9,10 @@
   이 수치의 정본은 이 파일이고 scripts/check_doc_form.py가 파싱해 쓴다.
 불변성: Accepted된 ADR은 고쳐 쓰지 않는다. 결정이 번복되면 새 ADR을 쓰고
   이쪽 상태를 Superseded by ADR NNNN으로 바꾼다.
+정정 절: 결정은 유효한데 맥락·근거 서술만 stale이면 새 ADR 없이 그 ADR 하단에
+  날짜·이슈 태그를 단 `## 정정 (YYYY-MM-DD, 사유)` 절을 **추가**할 수 있다 —
+  원 서술은 지우거나 고치지 않는다(append-only). 결정이 실제로 번복되면 위
+  불변성(새 ADR + Superseded)을 그대로 따른다.
 아래 뼈대를 복붙하고 <> 안을 채운 뒤, 이 HTML 주석과 힌트 주석은 지운다.
 -->
 
