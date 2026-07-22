@@ -8,11 +8,15 @@
 
 **예산 수치를 여기 하드코딩하지 않는다** — 정본은 `docs/docs-format/<유형>.md`
 폼이고 이 스크립트가 그걸 파싱해 쓴다. 골격을 폼과 코드 두 군데 두면 언젠가
-어긋난다(규칙 08 제3조).
+어긋난다.
 
 **모드**:
   python scripts/check_doc_form.py FILE...   # 지정 파일 검사(exit 1 = 위반)
   python scripts/check_doc_form.py --staged  # 스테이징된 .md만(pre-commit)
+
+**레포별 설정은 `gate_config.py`에 있다** — 이 판정의 근거 조문을 리젝 메시지에
+인용할지는 `gate_config.RULE_DOC_AUTHORING`이 정한다(문서 저작 규칙 문서가
+없는 저장소는 공란이라 인용이 생략된다).
 """
 from __future__ import annotations
 
@@ -20,6 +24,9 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+
+from gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
+from gate_config import rule_cite as _rule_cite
 
 # CWD가 아니라 이 스크립트 자신의 위치에 앵커링한다 — CWD 상대였을 때 다른
 # 디렉터리에서 불러오면 폼을 못 찾고, 그러면 아래 load_budgets가 빈 dict를
@@ -42,10 +49,10 @@ _BUDGET_PATS = {
 _GLOBAL_FORM = "rules"
 
 # 주: gen_readmes.py·onboard.py에도 동일 상수를 둔다 — 이 스크립트는 stdlib only라
-# (훅에서 vgo 설치 없이 돈다) import로 합칠 수 없다.
+# (훅에서 별도 설치 없이 돈다) import로 합칠 수 없다.
 _AGENT_CONFIG_NAMES = frozenset({"AGENTS.md", "CLAUDE.md"})
 
-# 에이전트 정의가 사는 디렉터리. 파일명은 페르소나 이름이라 자유(vgo-lead.md 등)
+# 에이전트 정의가 사는 디렉터리. 파일명은 페르소나 이름이라 자유(reviewer.md 등)
 # — 이름이 아니라 **디렉터리**가 유형이다. 유형명은 폼 파일명과 같아야 한다
 # (load_budgets가 `docs/docs-format/<유형>.md`를 찾는다).
 _AGENT_DEF_DIR: tuple[str, str] = (".claude", "agents")
@@ -96,7 +103,7 @@ _SENTENCE_END = re.compile(r"(?<![0-9.])\. (?=\S)")
 _HEADING = re.compile(r"^\s*#{1,6}\s")
 
 # 손으로 친 줄번호 좌표(`config.py:168`)를 금지한다 — 좌표는 위에 한 줄만 끼어도
-# 밀려(규칙 08 제3조 제3항) 편집마다 조용히 stale해진다. 심볼명/SHA-고정 경로로
+# 밀려 편집마다 조용히 stale해진다. 심볼명/SHA-고정 경로로
 # 가리키면 틀렸을 때 조회가 실패해 fail-loud가 된다.
 # **현재상태 문서 전부**에 건다 — 코드의 지금 동작을 서술하므로 좌표가 살아있는
 # 주장이다(features·rules·agents·루트 등). 날짜 박힌 기록만 면제한다: adr·history·
@@ -108,21 +115,23 @@ _COORD_EXEMPT_TYPES = frozenset({"adr", "history", "review", "test"})
 _COORD = re.compile(r"[\w./-]+\.(?:py|md|sh|json|toml|ya?ml|lock|txt|cfg|ini):\d+")
 
 # 자동생성 블록 경계. 이 안은 줄 길이 검사에서 면제한다 — 저자가 손댈 수 없는
-# 몫을 예산에 넣으면 저자는 그 예산을 지킬 방법이 없다(규칙 09 제5조가 고정
-# 문구인 체크리스트를 예산에서 뺀 것과 같은 이유). 이 블록의 길이는 원본 문서의
+# 몫을 예산에 넣으면 저자는 그 예산을 지킬 방법이 없다(고정 문구인 체크리스트를
+# 예산에서 뺀 것과 같은 이유). 이 블록의 길이는 원본 문서의
 # BLUF가 정하므로, 줄이려면 BLUF 상한으로 원본을 쳐야 한다 — 그쪽이 정본이다.
-# 자동생성 블록 마커. **마커가 늘면 이 목록에만 추가한다** — "저자가 손댈 수
-# 없는 몫을 저자 예산에 세지 않는다"는 원칙은 마커 종류와 무관하고, 정규식을
-# 손으로 두 군데 고치게 두면 한쪽만 늘어난다.
+# 자동생성 블록 마커. core는 gen_readmes.py의 롤업 마커 하나만 안다 — 저장소가
+# 자체 멱등 splice 도구를 갖췄으면 그 마커는 `gate_config.EXTRA_AUTOGEN_MARKERS`에
+# 얹는다(repo별 특화 지점, core에 하드코딩하면 그 도구가 없는 저장소에 죽은
+# 참조가 남는다). **마커가 늘면 이 튜플이나 EXTRA_AUTOGEN_MARKERS에만
+# 추가한다** — "저자가 손댈 수 없는 몫을 저자 예산에 세지 않는다"는 원칙은
+# 마커 종류와 무관하고, 정규식을 손으로 두 군데 고치게 두면 한쪽만 늘어난다.
 _AUTOGEN_MARKERS: tuple[tuple[str, str], ...] = (
     ("BLUF-INDEX:START", "BLUF-INDEX:END"),      # scripts/gen_readmes.py 롤업
-    ("vgo:managed:begin", "vgo:managed:end"),    # src/vgo/onboard.py 멱등 splice
-)
+) + tuple(EXTRA_AUTOGEN_MARKERS)
 # **줄 시작 앵커가 핵심이다.** 생성기가 찍는 마커는 언제나 그 줄의 유일한
-# 내용이지만, 프로즈는 마커 문법을 문장 중간에 인용한다(vgo는 마커를 논하는
-# 도그푸딩 저장소라 실제로 그랬다 — vgo의 ADR 0021이 본문에서 인용해 파일
-# 끝까지 면제시키고 위반 18건을 숨겼다). 코드펜스 미닫힘은 렌더가 깨져 저자가
-# 알아채지만 HTML 주석은 렌더에 안 보여 아무 신호가 없다.
+# 내용이지만, 프로즈는 마커 문법을 문장 중간에 인용할 수 있다 — 실사고: 그런
+# 인용 한 줄이 파일 끝까지를 면제시켜 위반을 통째로 숨겼다(상세: docs/history).
+# 코드펜스 미닫힘은 렌더가 깨져 저자가 알아채지만 HTML 주석은 렌더에 안 보여
+# 아무 신호가 없다.
 _AUTOGEN_START = re.compile(
     r"^\s*<!--\s*(?:" + "|".join(re.escape(s) for s, _ in _AUTOGEN_MARKERS) + ")"
 )
@@ -237,11 +246,11 @@ def doc_type(path: Path) -> str | None:
     # 아니라 다음에 rules 예산이 바뀌면 조용히 어긋난다 — 자기 폼(agent-def)에 건다.
     # **위 docs/ 갈래와 대칭으로 경로 맨 앞만 본다**(저장소 루트 상대). 중첩된
     # 다른 저장소의 `<서브레포>/.claude/agents/`까지 잡는 위치-무관 스캔은 활성
-    # 사례가 0이라 유예한다(규칙 05 제7조): pre-commit은 언제나 자기 저장소 루트
+    # 사례가 0이라 유예한다: pre-commit은 언제나 자기 저장소 루트
     # (`git rev-parse --show-toplevel`) 기준으로만 --staged를 돌리고 — 서브레포는
-    # 별개 저장소라 각자 훅이 각자 루트에서 돈다 — vgo의 경우 다른 레포
-    # 트리가 중첩되는 유일한 경로(ADR 0021 미러 `.data/mirrors/`)는 .gitignore라
-    # --staged가 못 보며, doc_type()/check_file()을 그런 경로로 부르는 코드도 없다.
+    # 별개 저장소라 각자 훅이 각자 루트에서 돈다. 다른 저장소 트리가 중첩되는
+    # 경로가 있어도 보통 .gitignore라 --staged가 못 보며, doc_type()/check_file()을
+    # 그런 경로로 부르는 코드도 없다.
     # 실제 호출 경로가 생기면 그때 스캔으로 넓혀라 — 지금 넓히면 근거 없는 분기다.
     if len(parts) >= 3 and parts[:2] == _AGENT_DEF_DIR:
         return _AGENT_DEF_TYPE
@@ -323,11 +332,12 @@ def _check_content(path: Path, text: str) -> list[str]:
 
     authored = _authored_line_count(lines)
     if lines_max and authored > lines_max:
+        _via = f"{RULE_DOC_AUTHORING} 제3조로 " if RULE_DOC_AUTHORING else ""
         violations.append(
-            f"{path}: {authored}줄 > {lines_max}줄 — 문서가 비대하다(규칙 08 "
-            f"비대 상한). 먼저 제3조로 기계-사실 재서술을 쳐내라"
-            f"([✅test]·개수·좌표를 링크·이름참조로). 그래도 넘으면 "
-            f"쪼개거나 docs/history로 내려라."
+            f"{path}: {authored}줄 > {lines_max}줄 — 문서가 비대하다"
+            f"{_rule_cite(RULE_DOC_AUTHORING, '비대 상한')}. 먼저 {_via}"
+            f"기계-사실 재서술을 쳐내라([✅test]·개수·좌표를 링크·이름참조로). "
+            f"그래도 넘으면 쪼개거나 docs/history로 내려라."
         )
 
     in_fence = False
@@ -389,23 +399,26 @@ def _check_content(path: Path, text: str) -> list[str]:
         # 한 줄에 문장이 여럿이면 리젝 — 길이(80자)와 별개 축이다. 길이는
         # 프록시라 접기로 우회되지만, 이건 "한 줄 = 한 문장" 구조를 직접 건다.
         if not _HEADING.match(line) and _SENTENCE_END.search(measured):
+            _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
             violations.append(
                 f"{path}:{i}: 한 줄에 문장이 여럿이다 — 문장마다 줄바꿈해 불릿로 "
-                f"빼라(단문이 읽힌다, 규칙 08 제5조)."
+                f"빼라(단문이 읽힌다{_reason5})."
             )
         # 길이 축에서만 링크 URL(안 쪼개지는 경로)을 마저 벗긴다 — 별도 사본이라
         # 문장·좌표 검사(measured)엔 영향 없다(면제는 길이 축 한정, `_strip_link_urls`).
         length_measured = _strip_link_urls(measured)
         if line_max and len(length_measured) > line_max:
+            _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
             violations.append(
                 f"{path}:{i}: {len(length_measured)}자 > {line_max}자 — 흐름을 우겨넣지 "
-                f"말고 쪼개라(상한은 채울 칸이 아니다, 규칙 08 제5조)."
+                f"말고 쪼개라(상한은 채울 칸이 아니다{_reason5})."
             )
         if kind not in _COORD_EXEMPT_TYPES:
             for coord in _COORD.findall(measured):
+                cite3 = _rule_cite(RULE_DOC_AUTHORING, "제3조")
                 violations.append(
                     f"{path}:{i}: 손으로 친 줄번호 좌표({coord}) — 편집마다 밀려 "
-                    f"stale된다(규칙 08 제3조). 심볼명이나 SHA-고정 경로를 써라."
+                    f"stale된다{cite3}. 심볼명이나 SHA-고정 경로를 써라."
                 )
 
     return violations
@@ -588,8 +601,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     for v in violations:
         print(f"  - {v}", file=sys.stderr)
+    _via = f"{RULE_DOC_AUTHORING} 제3조로 " if RULE_DOC_AUTHORING else ""
     print(
-        f"\n먼저 규칙 08 제3조로 기계-사실 재서술을 쳐내라([✅test]·개수·좌표를"
+        f"\n먼저 {_via}기계-사실 재서술을 쳐내라([✅test]·개수·좌표를"
         f"\n링크·이름참조로 — 이게 근본). 그다음 긴 줄은 불릿로 쪼개고, 그래도"
         f"\n상한을 넘으면 근거를 docs/history로 내려 \"## 관련\"에서 링크하라(최후)."
         f"\n예산·면제의 정본: {FORM_DIR}/<유형>.md",

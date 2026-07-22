@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# 목적: 커밋 전 문서 게이트 2종.
+# 목적: 커밋 전 문서 게이트 3종.
 #   (1) scripts/check_doc_form.py --staged — 스테이징된 .md가 문서 폼
 #       (docs/docs-format/<유형>.md) 줄 예산을 지키는지.
 #   (2) scripts/gen_readmes.py --check — 자동생성 인덱스(BLUF-INDEX) drift 0.
 #       블록은 "수기 편집 금지"라 선언만 돼 있었고 강제가 없었다 — 사람·AI가
 #       블록 안에 써도 커밋됐고, ship_check(출하)에서야 잡혀 그 사이 오염
 #       커밋이 쌓였다(ADR 0014가 "pre-commit 배선은 후속"이라 예고한 그 후속).
-#   둘 중 하나라도 비영 종료면 커밋을 막는다(git pre-commit 규약 — 0=통과).
+#   (3) scripts/check_gate_drift.py — core 게이트 파일에 특정 저장소를 가리키는
+#       서술이 남았는지(+ GATE_CANONICAL_DIR 설정 시 형제 저장소 바이트 비교).
+#   셋 중 하나라도 비영 종료면 커밋을 막는다(git pre-commit 규약 — 0=통과).
 #
 # fail-open: 검사기 파일이 없으면 그 검사를 건너뛴다 — 파일 하나가 사라졌다고
 #   저장소의 모든 커밋이 막히면 게이트가 자기 자신을 잠근다(ADR 0029 조건 1).
@@ -37,4 +39,10 @@ MSG
     elif [ "${rc:-0}" -ne 0 ]; then
         exit "$rc"
     fi
+fi
+
+if [ -f "scripts/check_gate_drift.py" ]; then
+    # 인자 없이 그대로 호출 — 두 축(특정 저장소 지시·바이트 비교) 판단은
+    # 스크립트 내부에서 갈린다.
+    python3 scripts/check_gate_drift.py
 fi

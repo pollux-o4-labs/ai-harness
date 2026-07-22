@@ -1,0 +1,6 @@
+# core 게이트 스크립트는 저장소 간 바이트 비교 대상이다(scripts/check_gate_drift.py) —
+# CRLF로 체크아웃되면 개행 문자만으로 "다르다"는 거짓 드리프트가 뜬다. LF로 고정한다.
+scripts/check_pr_body.py text eol=lf
+scripts/check_doc_form.py text eol=lf
+scripts/gen_readmes.py text eol=lf
+scripts/check_gate_drift.py text eol=lf
