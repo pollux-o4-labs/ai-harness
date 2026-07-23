@@ -188,6 +188,12 @@ _COMMENT_BUDGET_PATS = {
 # 고치면 되고 이 스크립트는 안 건드린다.
 _REVIEW_HEADER_EXAMPLE = re.compile(r"`(##\s+.+?)\s*—\s*\d+차\s*\([0-9a-fA-F]+\)`")
 
+# 리뷰 종합 코멘트 골격 선언 — pr-comment.md가 정본. 필수 `##` 섹션·닫힌 등급
+# 라벨을 예산·헤더와 같은 관례로 파싱한다. 선언이 없으면 골격 강제는 no-op
+# (그 저장소는 이 축을 안 켠 것) — load_review_skeleton·check_review_skeleton 참조.
+_REVIEW_SECTIONS_PAT = re.compile(r"필수 `##` 섹션:\s*(.+?)\.")
+_REVIEW_LABELS_PAT = re.compile(r"등급 라벨\(닫힌 집합\):\s*(.+?)\.")
+
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _H2 = re.compile(r"^##\s+(.+?)\s*$")
 _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
@@ -414,6 +420,24 @@ def load_review_header_prefix() -> str | None:
     return m.group(1).strip() if m else None
 
 
+def load_review_skeleton() -> tuple[list[str], list[str]]:
+    """`docs_format/pr-comment.md`에서 리뷰 종합 코멘트의 필수 `##` 섹션과 닫힌
+    등급 라벨을 뽑는다(폼이 정본, 예산·헤더와 같은 파싱 관례).
+
+    반환: (required_sections, verdict_labels). 폼이 선언을 안 했으면 각각 빈
+    리스트 — 그 저장소는 골격 강제를 안 켠 것이라 check_review_skeleton이 no-op
+    이 된다. 예산의 fail-closed와 다른 이유: 예산은 '잴 자가 없음'이지만 골격은
+    '이 축을 안 쓰는 저장소'라 통과가 맞다(원칙 5, 단계적 도입)."""
+    if not _COMMENT_FORM_PATH.is_file():
+        return [], []
+    text = _COMMENT_FORM_PATH.read_text(encoding="utf-8")
+    sm = _REVIEW_SECTIONS_PAT.search(text)
+    lm = _REVIEW_LABELS_PAT.search(text)
+    sections = [s.strip() for s in sm.group(1).split(",")] if sm else []
+    labels = [s.strip() for s in lm.group(1).split(",")] if lm else []
+    return sections, labels
+
+
 def _review_header_pattern(prefix: str) -> re.Pattern[str]:
     """`<prefix> — <차수> (<SHA>)` 헤더 한 줄에 매치되는 정규식을 만든다.
     `round`·`sha` 그룹으로 뽑는다 — 신선도 판정은 sha만 쓴다."""
@@ -483,7 +507,57 @@ def check_comment(body: str) -> list[str]:
             )
 
     violations.extend(check_jargon(body))
+    # 리뷰 종합 코멘트면 폼 골격(필수 섹션·등급 라벨)까지 강제한다 — 일반
+    # 코멘트엔 no-op. 존재·신선도는 check_review_evidence(머지), 골격은 여기(게시).
+    violations.extend(check_review_skeleton(body))
     return violations
+
+
+def check_review_skeleton(body: str) -> list[str]:
+    """리뷰 종합 코멘트(`## 리뷰 종합` 헤더를 단 코멘트)가 폼이 선언한 골격을
+    갖췄는지 검사한다 — 필수 `##` 섹션 전부 + 등급 라벨 최소 하나.
+
+    리뷰 종합 코멘트가 아니면(헤더 없음) 빈 리스트 — 일반 코멘트는 골격 대상이
+    아니다. 미달이면 리젝 사유와 함께 채울 골격 템플릿을 낸다("안 쓰면 쓰게").
+    라벨의 진실성(등급이 옳은가)은 못 밝힌다 — 그건 리뷰어 몫(원칙 2), 여기선
+    형식(있나)만 강제한다.
+    """
+    prefix = load_review_header_prefix()
+    if prefix is None:
+        return []  # 헤더 접두어 못 뽑음 — check_comment 예산 경로가 이미 fail-closed
+    if not any(line.strip().startswith(prefix) for line in body.splitlines()):
+        return []  # 리뷰 종합 코멘트 아님 → 골격 대상 아님
+    required, labels = load_review_skeleton()
+    if not required and not labels:
+        return []  # 폼이 골격 강제를 안 켬(선언 없음)
+    present = {m.group(1) for line in body.splitlines() if (m := _H2.match(line))}
+    violations: list[str] = []
+    for sec in required:
+        if not any(sec in h for h in present):
+            violations.append(f"리뷰 종합 코멘트에 `## {sec}` 섹션 없음 — 골격 미달.")
+    if labels and not any(lbl in body for lbl in labels):
+        violations.append(
+            f"리뷰 종합 코멘트에 등급 라벨 없음 — {' / '.join(labels)} 중 최소 "
+            f"하나로 각 항목을 매겨라."
+        )
+    if violations:
+        violations.append(_review_skeleton_template(prefix, required, labels))
+    return violations
+
+
+def _review_skeleton_template(prefix: str, sections: list[str], labels: list[str]) -> str:
+    """리젝 시 건네는, 이대로 채우면 통과하는 골격 — 선언에서 생성한다(별도
+    템플릿 파일 없이 단일 정본에서 파생, 드리프트 원천 차단)."""
+    skel = [f"{prefix} — <차수> (<SHA>)"]
+    for sec in sections:
+        if sec in prefix:  # '리뷰 종합'은 헤더 줄이 이미 담는다
+            continue
+        skel.append(f"## {sec}")
+    return (
+        "골격 템플릿(이대로 채워라):\n"
+        + "\n".join(skel)
+        + f"\n등급 라벨: {' / '.join(labels)}"
+    )
 
 
 def _report_comment(violations: list[str], body: str) -> None:

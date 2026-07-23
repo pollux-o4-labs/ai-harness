@@ -9,7 +9,7 @@
 ### 문서
 - `__init__.py` — ai-harness 게이트 패키지 — 설치된 단일 CLI(`ai-harness`)가 이 패키지의 게이트 모듈로 라우팅한다.
 - `check_doc_form.py` — 변경된 .md가 유형별 폼(docs_format/*.md)의 줄 예산을 지키는지 판정하는 룰 게이트(stdlib only, LLM 0) — pre-commit 훅으로 커밋을 리젝한다.
-- `check_pr_body.py` — PR 본문이 필수 섹션을 갖췄고 각 섹션이 글자 예산 안인지 판정하는 룰 게이트(stdlib only, LLM 0) — Claude Code PreToolUse 훅으로 `gh pr create`·`gh pr merge`를 리젝한다.
+- `check_pr_body.py` — PR 본문이 필수 섹션을 갖췄고 각 섹션이 글자 예산 안인지, PR 제목이 conventional-commit 형식인지 판정하는 룰 게이트(stdlib only, LLM 0) — Claude Code PreToolUse 훅으로 `gh pr create`·`gh pr merge`를 리젝한다.
 - `cli.py` — ai-harness 게이트 서브커맨드 디스패처 — 설치된 단일 CLI가 각 게이트 모듈의 main으로 라우팅한다(로직은 각 모듈이 정본).
 - `config.py` — 대상 저장소 루트의 gate_config.py 값을 번들 모듈에 얹어(오버레이) 설치형 CLI가 그 저장소 값으로 동작하게 하는 다리 — 로드·우아한 실패·프로세스당-1회 가드.
 - `gate_config.py` — 게이트 core(check_pr_body.py·check_doc_form.py)의 repo별 설정값 — 이 파일만 레포마다 다르고 나머지 게이트 코드는 전 레포에서 바이트 동일해야 한다.
