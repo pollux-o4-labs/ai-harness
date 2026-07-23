@@ -49,6 +49,8 @@ def install_agents(user: bool = False) -> int:
 
     installed = 0
     for src in sorted(_AGENTS_SRC.glob("*.md")):
+        if src.name == "README.md":
+            continue  # 폴더 개요 README는 에이전트가 아니라 설치 제외
         dst = dst_dir / src.name
         if dst.exists():
             print(f"[install_agents] = {src.name} (이미 있음 — 덮지 않음, 커스터마이즈 보존)")
