@@ -18,6 +18,7 @@ commands:
   check-doc      문서 폼(줄 예산) 게이트
   gen-readmes    BLUF 기반 README 자동 생성
   install-hooks  git 훅 설치
+  install-agents 리뷰어 에이전트 템플릿 설치(.claude/agents/)
 """
 
 
@@ -50,6 +51,9 @@ def main(argv: list[str] | None = None) -> int:
         return _m()
     if cmd == "install-hooks":
         from ai_harness.install_hooks import main as _m
+        return _m(rest)
+    if cmd == "install-agents":
+        from ai_harness.install_agents import main as _m
         return _m(rest)
 
     print(f"[ai-harness] 알 수 없는 명령: {cmd}\n\n{_USAGE}", file=sys.stderr)
