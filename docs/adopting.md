@@ -26,6 +26,11 @@ uv tool install git+https://github.com/pollux-o4-labs/ai-harness.git
 
 CLI가 PATH에 없으면 훅은 fail-open으로 건너뛴다(저장소 자체 잠금 방지).
 
+리뷰 종합 코멘트(`gh pr comment`)는 골격도 강제한다.
+`## 리뷰 종합` 헤더를 단 코멘트는 필수 `##` 섹션과 등급 라벨을 갖춰야 한다.
+필수 섹션·라벨은 core 번들 `docs_format/pr-comment.md`가 정본이다(전 레포 공통).
+게이트는 형식(있나)만 보고, 등급의 진실성은 리뷰어가 판단한다.
+
 ## gate_config.py 값
 
 core는 그대로 두고 이 파일만 저장소에 맞춘다.

@@ -35,6 +35,8 @@ _VENV_BIN = str(Path(sys.executable).parent)
 _STUB_FORM_TEXT = (
     "예산(둘 다 상한): 40줄 · 산문 한 줄 80자·한 문장.\n"
     "헤더에 차수와 대상 커밋을 적는다 — `## 리뷰 종합 — 2차 (8c8f4f7)`.\n"
+    "리뷰 종합 코멘트 필수 `##` 섹션: 리뷰 종합, 확인 항목 근거, 검증.\n"
+    "등급 라벨(닫힌 집합): BLOCKER, SHOULD-FIX, NIT, OK.\n"
 )
 
 
@@ -1024,6 +1026,84 @@ def test_comment_multiple_sentences_rejected():
     """한 줄에 문장 둘(마침표 뒤 문장이 이어짐)이면 리젝 — 한 줄 한 문장."""
     body = GOOD_COMMENT + "- 첫 사항이다. 둘째 사항이 한 줄에 붙었다.\n"
     assert any("문장이 여럿" in v for v in cpb.check_comment(body))
+
+
+# --- 리뷰 종합 코멘트 골격(check_review_skeleton) ----------------------------
+#
+# 리뷰 종합 코멘트(`## 리뷰 종합` 헤더)는 폼이 선언한 골격(필수 `##` 섹션 +
+# 등급 라벨)을 갖춰야 한다 — "안 쓰면 쓰게" 최소 강제. 라벨 진실성은 리뷰어 몫.
+
+_REVIEW_THIN = "## 리뷰 종합 — 1차 (abc1234)\nBLOCKER 없음\n"
+_REVIEW_FULL = (
+    "## 리뷰 종합 — 1차 (abc1234)\n"
+    "3관점 리뷰 · BLOCKER 0 · SHOULD-FIX 1\n"
+    "## 확인 항목 근거\n- 가독성: 은어 풀이, 통과.\n"
+    "## 검증\n- pytest exit 0.\n"
+)
+
+
+def test_load_review_skeleton_parses_form():
+    """폼(pr-comment.md)에서 필수 섹션·등급 라벨을 뽑는다(선언이 정본)."""
+    sections, labels = cpb.load_review_skeleton()
+    assert "확인 항목 근거" in sections and "검증" in sections
+    assert "BLOCKER" in labels and "NIT" in labels
+
+
+def test_review_skeleton_passes_full_comment():
+    assert cpb.check_review_skeleton(_REVIEW_FULL) == []
+
+
+def test_review_skeleton_rejects_missing_section():
+    """`## 리뷰 종합`만 있고 확인 항목 근거·검증이 없으면 골격 미달 리젝."""
+    violations = cpb.check_review_skeleton(_REVIEW_THIN)
+    assert any("확인 항목 근거" in v and "골격 미달" in v for v in violations)
+    assert any("검증" in v and "골격 미달" in v for v in violations)
+
+
+def test_review_skeleton_rejects_missing_label():
+    """섹션은 있어도 등급 라벨이 하나도 없으면 리젝."""
+    nolabel = "## 리뷰 종합 — 1차 (abc1234)\n## 확인 항목 근거\n- x\n## 검증\n- y\n"
+    assert any("등급 라벨 없음" in v for v in cpb.check_review_skeleton(nolabel))
+
+
+def test_review_skeleton_ignores_non_review_comment():
+    """`## 리뷰 종합` 헤더 없는 일반 코멘트는 골격 대상이 아니다(no-op)."""
+    assert cpb.check_review_skeleton("그냥 코멘트.\n버그 있음.\n") == []
+
+
+def test_review_skeleton_reject_hands_template():
+    """리젝 시 채우면 통과하는 골격 템플릿을 함께 낸다('안 쓰면 쓰게')."""
+    joined = "\n".join(cpb.check_review_skeleton(_REVIEW_THIN))
+    assert "골격 템플릿" in joined
+    assert "## 확인 항목 근거" in joined and "## 검증" in joined
+
+
+def test_check_comment_enforces_skeleton_for_review_comment():
+    """check_comment이 리뷰 종합 코멘트엔 골격까지 강제한다(배선 확인)."""
+    assert any("골격 미달" in v for v in cpb.check_comment(_REVIEW_THIN))
+
+
+def test_review_skeleton_label_needs_word_boundary():
+    """등급 라벨은 단어경계로 본다 — 'TOKEN'의 OK·'UNIT'의 NIT는 라벨 아님."""
+    body = (
+        "## 리뷰 종합 — 1차 (abc1234)\n"
+        "API TOKEN 처리와 UNIT 테스트를 확인함.\n"
+        "## 확인 항목 근거\n- 가독성: 통과.\n## 검증\n- exit 0.\n"
+    )
+    assert any("등급 라벨 없음" in v for v in cpb.check_review_skeleton(body))
+
+
+def test_review_skeleton_noop_when_form_lacks_declaration(monkeypatch, tmp_path):
+    """폼에 골격 선언이 없으면(구버전 폼) check_review_skeleton은 no-op —
+    저장소별 토글이 아니라 '선언 미주입 폼'일 때만 발동하는 분기."""
+    form = tmp_path / "pr-comment.md"
+    form.write_text(  # 예산·헤더만, 골격 선언 없음
+        "예산(둘 다 상한): 40줄 · 산문 한 줄 80자·한 문장.\n"
+        "헤더 — `## 리뷰 종합 — 2차 (8c8f4f7)`.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cpb, "_COMMENT_FORM_PATH", form)
+    assert cpb.check_review_skeleton(_REVIEW_THIN) == []
 
 
 def test_comment_code_fence_line_exempt():
