@@ -1336,6 +1336,23 @@ def test_extract_title_finds_equals_form():
     assert (title, reason) == ("fix:버그", None)
 
 
+def test_extract_title_finds_short_flag_equals_form():
+    """`-t=VALUE`도 파싱한다(회귀 — 리뷰 SHOULD-FIX#1) — 이전엔 못 읽어 제목이
+    실재하는데도 fail-open으로 새는 우회구였다."""
+    title, reason = cpb.extract_title_from_command(
+        "gh pr create -t=fix:버그 --body-file f"
+    )
+    assert (title, reason) == ("fix:버그", None)
+
+
+def test_extract_title_finds_short_flag_attached_form():
+    """`-tVALUE`(공백 없는 붙임꼴)도 파싱한다(회귀 — 리뷰 SHOULD-FIX#1)."""
+    title, reason = cpb.extract_title_from_command(
+        'gh pr create -t"fix: 버그" --body-file f'
+    )
+    assert (title, reason) == ("fix: 버그", None)
+
+
 def test_extract_title_absent_is_not_rejected():
     """제목 플래그가 없는 create 호출은 (None, None) — fail-open(설계 결정,
     모듈 docstring 참조)."""
@@ -1369,6 +1386,27 @@ def test_hook_allows_good_title(monkeypatch, tmp_path):
     assert _run_hook(
         monkeypatch, f'gh pr create --title "feat: 제목 게이트" --body-file {p}'
     ) == 0
+
+
+def test_hook_allows_good_title_via_short_flag_attached_form(monkeypatch, tmp_path):
+    """`-tVALUE`(공백 없는 붙임꼴)로 넘긴 유효 제목도 훅 경로에서 통과해야
+    한다(리뷰 SHOULD-FIX#1)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(
+        monkeypatch, f'gh pr create -t"feat: 붙임꼴 제목" --body-file {p}'
+    ) == 0
+
+
+def test_hook_blocks_bad_title_via_short_flag_attached_form(monkeypatch, tmp_path, capsys):
+    """회귀: `-tVALUE` 붙임꼴을 못 읽으면 제목이 실재하는데도 fail-open으로
+    새던 우회구였다 — 이제 미지 타입이 잡힌다(리뷰 SHOULD-FIX#1)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(
+        monkeypatch, f'gh pr create -t"bogus: 제목" --body-file {p}'
+    ) == 2
+    assert "타입 'bogus' 미지" in capsys.readouterr().err
 
 
 def test_hook_allows_missing_title(monkeypatch, tmp_path):

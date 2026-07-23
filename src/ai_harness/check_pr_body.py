@@ -599,6 +599,16 @@ def _segment_end(argv: list[str], start: int) -> int:
     return len(argv)
 
 
+def _segment_bounds(argv: list[str], span: tuple[int, int]) -> tuple[int, int]:
+    """매칭된 gh 호출(span) 뒤부터 같은 셸 세그먼트 끝까지의 `[start, end)`
+    범위 — `subcmd_i + 1`과 `_segment_end` 조합을 한 곳에 모은다.
+    `_body_from_match`·`extract_title_from_command`가 공유한다(리뷰
+    SHOULD-FIX#2, 3줄 복붙 제거)."""
+    _, subcmd_i = span
+    start = subcmd_i + 1
+    return start, _segment_end(argv, start)
+
+
 def _match_diagnostic(argv: list[str], span: tuple[int, int], subcommand: str) -> str:
     """리젝 사유에 붙일 자기진단 힌트 — 어떤 토큰을 `gh pr <subcommand>`로
     인식했는지 위치·내용을 노출한다. 오탐(주석·heredoc 안 평문 등)이어도
@@ -647,9 +657,7 @@ def _body_from_match(argv: list[str], span: tuple[int, int], subcommand: str) ->
     """매칭된 gh 호출(span) 소속 --body/--body-file만 찾는다(국소성) — 매칭된
     subcommand 토큰 뒤부터 다음 셸 연산자 전까지로 범위를 좁힌다. 실패하면
     사유에 매칭 위치를 붙인다(자기진단, CRITICAL 처방 2)."""
-    _, subcmd_i = span
-    start = subcmd_i + 1
-    end = _segment_end(argv, start)
+    start, end = _segment_bounds(argv, span)
     body, reason = _body_from_argv(argv, start=start, end=end)
     if body is None and reason is not None:
         reason = reason + _match_diagnostic(argv, span, subcommand)
@@ -739,17 +747,24 @@ _TITLE_FLAGS = {"--title", "-t"}
 
 def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
     """`gh pr create ...`에서 제목을 뽑는다 — `extract_body_from_command`의
-    거울상(같은 `_find_gh_pr_span`·`_segment_end` 국소성 규약을 공유한다).
+    거울상(같은 `_find_gh_pr_span`·`_segment_bounds` 국소성 규약을 공유한다).
     `gh pr create`가 아니면 (None, None) — 호출자가 '검사 대상 아님'으로
     통과시킨다.
 
     **제목 플래그가 없어도 (None, None)이다(fail-open)** — body와 다른
     선택이다. body는 플래그가 없으면 리젝 사유를 낸다(우회 차단, 모듈
-    docstring 참조). 하지만 이 게이트가 강제하는 축은 "제목이 있다면 형식이
-    맞아야 한다"이지 "제목이 항상 있어야 한다"가 아니다 — `--fill` 등 제목이
-    명령 인자에 없는 create 호출은 이미 body 부재로 fail-closed 리젝되므로
-    (`run_hook`이 body를 먼저 확인한다), 여기서 제목 부재까지 리젝하면 같은
-    호출을 두 번 막는 것 없이 새로 얻는 것도 없다.
+    docstring 참조). **이 게이트는 명령에 명시된 제목(`--title`/`-t`류
+    형태)만 검증한다** — `--fill` 등 gh가 커밋에서 파생하는 제목은 argv에
+    아예 없어 이 게이트 사정권 밖이다(커밋 메시지 관심사이지 PR 제목 형식
+    관심사가 아니다, 별도 축). 그래서 제목 플래그가 없으면 통과시킨다 —
+    "제목이 있으면 형식을 강제하고, 없으면 검사하지 않는다"가 의도된
+    스코프다(body처럼 부재 자체를 우회로 보지 않는다. 리뷰 정정 — 이전
+    문구는 "body 부재가 이미 막는다"고 잘못 주장했으나 `--fill --body-file
+    <정상 본문>`처럼 body는 있고 제목만 없는 호출이 성립해 거짓이었다).
+
+    붙임 단축형(`-tVALUE`·`-t=VALUE`)도 잡는다(리뷰 SHOULD-FIX#1) — 못 잡으면
+    제목이 실재하는데도 이 게이트가 못 읽어 fail-open으로 새는 우회구가 된다.
+    `-t`는 gh pr create에서 title 전용 단축 플래그라 다른 뜻과 안 겹친다.
 
     반환: (title, reason_if_uninspectable).
     """
@@ -762,15 +777,17 @@ def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
     if span is None:
         return None, None
 
-    _, subcmd_i = span
-    start = subcmd_i + 1
-    end = _segment_end(argv, start)
+    start, end = _segment_bounds(argv, span)
     for i in range(start, end):
         tok = argv[i]
         if tok in _TITLE_FLAGS and i + 1 < end:
             return argv[i + 1], None
         if tok.startswith("--title="):
             return tok.split("=", 1)[1], None
+        if tok.startswith("-t="):
+            return tok[3:], None
+        if tok.startswith("-t") and not tok.startswith("--") and len(tok) > 2:
+            return tok[2:], None
     return None, None
 
 
