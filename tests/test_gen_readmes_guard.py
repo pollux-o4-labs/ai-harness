@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
-    "gen_readmes", Path(__file__).resolve().parent.parent / "scripts" / "gen_readmes.py"
+    "gen_readmes", Path(__file__).resolve().parent.parent / "src" / "ai_harness" / "gen_readmes.py"
 )
 gen_readmes = importlib.util.module_from_spec(_SPEC)
 sys.modules["gen_readmes"] = gen_readmes

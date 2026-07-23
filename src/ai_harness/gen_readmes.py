@@ -22,8 +22,8 @@ gen_readmes.py — BLUF 기반 README 자동 생성기 (결정적 롤업, LLM 0)
   - 내용이 실제로 바뀐 파일만 기록한다(멱등).
 
 사용:
-  python scripts/gen_readmes.py           # 적용(README 갱신)
-  python scripts/gen_readmes.py --check    # 드라이런: 변경 필요/누락 BLUF가 있으면 비영(非零) 종료
+  ai-harness gen-readmes           # 적용(README 갱신)
+  ai-harness gen-readmes --check    # 드라이런: 변경 필요/누락 BLUF가 있으면 비영(非零) 종료
 """
 from __future__ import annotations
 

@@ -18,9 +18,11 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "scripts"))
+import ai_harness.check_pr_body as cpb  # noqa: E402
 
-import check_pr_body as cpb  # noqa: E402
+# 설치된 콘솔 스크립트(`ai-harness`)가 사는 venv bin — wired 훅 테스트가 이걸
+# PATH에 얹어 "CLI가 설치돼 있는" 실제 환경을 재현한다(미설치 재현은 이걸 뺀다).
+_VENV_BIN = str(Path(sys.executable).parent)
 
 # `docs/docs-format/pr-comment.md`는 이 코멘트 게이트를 처음 만든 저장소의
 # 폼 파일 경로를 그대로 옮겨온 것이다 — repo별 특화 지점(README가 안내)이라 이
@@ -49,7 +51,7 @@ def _real_comment_form():
     안 닿는다(그 프로세스가 실제 경로에서 폼을 다시 읽는다) — 이 픽스처는 실제
     `_COMMENT_FORM_PATH` 자리에 스텁 폼을 잠깐 놓고 테스트가 끝나면 지운다. 이미
     파일이 있으면(이 저장소가 자체 폼을 갖췄으면) 그대로 두고 건드리지 않는다."""
-    path = _REPO_ROOT / "docs" / "docs-format" / "pr-comment.md"
+    path = _REPO_ROOT / "src" / "ai_harness" / "docs_format" / "pr-comment.md"
     if path.is_file():
         yield path
         return
@@ -770,19 +772,22 @@ def _hook_command() -> str:
     commands = [
         h["command"]
         for m in matchers if m.get("matcher") == "Bash"
-        for h in m["hooks"] if "check_pr_body" in h.get("command", "")
+        for h in m["hooks"] if "check-pr" in h.get("command", "")
     ]
-    assert len(commands) == 1, f"Bash용 check_pr_body 훅이 1개가 아님: {commands}"
+    assert len(commands) == 1, f"Bash용 check-pr 훅이 1개가 아님: {commands}"
     return commands[0]
 
 
-def _run_wired_hook(command: str, project_dir: Path) -> int:
-    """훅 래퍼를 실제 sh로 실행하고 종료코드를 돌려준다."""
+def _run_wired_hook(command: str, project_dir: Path, *, cli_on_path: bool = True) -> int:
+    """훅 래퍼를 실제 sh로 실행하고 종료코드를 돌려준다.
+
+    cli_on_path=False 는 `ai-harness` 미설치를 재현한다(fail-open 검증용)."""
+    path = f"{_VENV_BIN}:/usr/bin:/bin" if cli_on_path else "/usr/bin:/bin"
     return subprocess.run(
         ["sh", "-c", _hook_command()],
         input=json.dumps({"tool_input": {"command": command}}),
         capture_output=True, text=True,
-        env={"PATH": "/usr/bin:/bin", "CLAUDE_PROJECT_DIR": str(project_dir)},
+        env={"PATH": path, "CLAUDE_PROJECT_DIR": str(project_dir)},
     ).returncode
 
 
@@ -807,10 +812,11 @@ def test_wired_hook_does_not_lock_repo_when_checker_absent(tmp_path):
 
     회귀: 초기 배선은 `python3 <없는파일>`이 exit 2로 죽었고, 훅 규약에서 2는
     '차단'이라 저장소의 모든 Bash 명령이 막혔다(게이트가 자기 자신을 잠금).
-    파일 부재는 git에서 보이는 문제이므로, 전 명령을 막는 것보다 게이트가
-    조용히 꺼지는 편이 덜 해롭다.
+    지금은 `command -v ai-harness`로 미설치를 감지해 건너뛴다 — CLI 부재는
+    운영자가 볼 수 있는 문제이므로, 전 명령을 막는 것보다 조용히 꺼지는 편이
+    덜 해롭다(cli_on_path=False로 미설치를 재현).
     """
-    assert _run_wired_hook("git status", tmp_path) == 0
+    assert _run_wired_hook("git status", tmp_path, cli_on_path=False) == 0
 
 
 def test_wired_hook_does_not_swallow_rejection(tmp_path):
@@ -857,7 +863,7 @@ def _run_wired_hook_with_fake_gh(command: str, fake_gh_dir: Path) -> int:
         ["sh", "-c", _hook_command()],
         input=json.dumps({"tool_input": {"command": command}}),
         capture_output=True, text=True,
-        env={"PATH": f"{fake_gh_dir}:/usr/bin:/bin", "CLAUDE_PROJECT_DIR": str(_REPO_ROOT)},
+        env={"PATH": f"{fake_gh_dir}:{_VENV_BIN}:/usr/bin:/bin", "CLAUDE_PROJECT_DIR": str(_REPO_ROOT)},
     ).returncode
 
 

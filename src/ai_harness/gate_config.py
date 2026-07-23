@@ -4,10 +4,8 @@
 
 `check_pr_body.py`·`check_doc_form.py`·`gen_readmes.py`(core)는 이 저장소든
 다른 저장소든 로직이 같아야 한다 — 대상 저장소에 맞출 값(은어 목록·면제 섹션·
-규칙 문서 인용)은 전부 이 파일로 뽑는다. 이러면 core를 복사해 쓰는 저장소가
-늘어도 core 파일 자체는 안 갈라지고, 이 파일 하나만 그 저장소 것으로 바꾸면
-된다(도입기: `scripts/check_gate_drift.py`가 core만 바이트 비교하고 이 파일은
-비교에서 뺀다 — 다르라고 만든 파일이라 드리프트가 아니다).
+규칙 문서 인용)은 전부 이 파일로 뽑는다. 이러면 core는 설치된 패키지 하나가
+정본이고, 각 저장소는 자기 `gate_config.py`만 두면 CLI가 그 값을 얹는다.
 
 **`EXEMPT_SHAPE`는 core의 검증 함수를 직접 import해서 만든다** — 이름 문자열로
 찾는 registry가 아니다. 이름→함수 registry는 오타가 나도 "그 이름이 없다"는
@@ -23,6 +21,12 @@
 from __future__ import annotations
 
 from typing import Callable
+
+# 이 저장소에서 끌 게이트 서브커맨드 이름(예: "gen-readmes"). **기본은 전부 켬**
+# — 비어 있으면 설치된 게이트가 모두 돈다(BLUF·문서폼·PR본문). 특정 게이트가
+# 맞지 않는 저장소만 여기서 예외로 끈다(opt-out). CLI 디스패처가 대상 저장소의
+# 이 값을 읽어 해당 게이트를 no-op 처리한다.
+DISABLED_GATES: tuple[str, ...] = ()
 
 # 제3자가 한 번에 못 읽는 그 저장소의 내부 용어 — 첫 등장에 괄호 풀이를 요구한다
 # (금지가 아니다. 그 용어가 주제인 PR을 못 쓰게 되면 게이트가 꺼진다).
@@ -75,7 +79,7 @@ def build_exempt_shape() -> dict[str, tuple[Callable[[str], bool], str]]:
     EXEMPT_SHAPE를 채운다 — 그 시점엔 이 두 이름이 이미 있으므로 이 지연
     임포트가 항상 성립한다.
     """
-    from check_pr_body import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
+    from ai_harness.check_pr_body import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
 
     return {
         "변경 유형": (

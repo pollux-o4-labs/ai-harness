@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-# BLUF: 변경된 .md가 유형별 폼(docs/docs-format/*.md)의 줄 예산을 지키는지 판정하는 룰 게이트(stdlib only, LLM 0) — pre-commit 훅으로 커밋을 리젝한다.
+# BLUF: 변경된 .md가 유형별 폼(docs_format/*.md)의 줄 예산을 지키는지 판정하는 룰 게이트(stdlib only, LLM 0) — pre-commit 훅으로 커밋을 리젝한다.
 """문서 폼 게이트 — 줄 단위.
 
 한 줄에 흐름을 통째로 우겨넣으면 파일이 비대해지고 검토가 안 된다(실측: 과도하게
 긴 한 줄과 비대한 BLUF가 실존했다). 총량만 재면 이게 안 걸리므로
 줄 단위로 잰다.
 
-**예산 수치를 여기 하드코딩하지 않는다** — 정본은 `docs/docs-format/<유형>.md`
+**예산 수치를 여기 하드코딩하지 않는다** — 정본은 `docs_format/<유형>.md`
 폼이고 이 스크립트가 그걸 파싱해 쓴다. 골격을 폼과 코드 두 군데 두면 언젠가
 어긋난다.
 
 **모드**:
-  python scripts/check_doc_form.py FILE...   # 지정 파일 검사(exit 1 = 위반)
-  python scripts/check_doc_form.py --staged  # 스테이징된 .md만(pre-commit)
+  ai-harness check-doc FILE...   # 지정 파일 검사(exit 1 = 위반)
+  ai-harness check-doc --staged  # 스테이징된 .md만(pre-commit)
 
 **레포별 설정은 `gate_config.py`에 있다** — 이 판정의 근거 조문을 리젝 메시지에
 인용할지는 `gate_config.RULE_DOC_AUTHORING`이 정한다(문서 저작 규칙 문서가
@@ -25,14 +25,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
-from gate_config import rule_cite as _rule_cite
+from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
+from ai_harness.gate_config import rule_cite as _rule_cite
 
 # CWD가 아니라 이 스크립트 자신의 위치에 앵커링한다 — CWD 상대였을 때 다른
 # 디렉터리에서 불러오면 폼을 못 찾고, 그러면 아래 load_budgets가 빈 dict를
 # 반환해 예산이 전부 None이 되어 검사를 통째로 건너뛰고 조용히 통과했다
 # (회귀: 같은 파일이 CWD만 바꿔도 판정이 뒤집힘).
-FORM_DIR = Path(__file__).resolve().parent.parent / "docs" / "docs-format"
+FORM_DIR = Path(__file__).resolve().parent / "docs_format"
 
 # 폼에서 예산을 뽑는 패턴. 폼이 정본이므로 수치는 코드에 없다.
 # 실제 폼 문구는 "100줄 · 산문 한 줄 80자 · BLUF 한 줄 100자(마커 제외)."이지
@@ -54,7 +54,7 @@ _AGENT_CONFIG_NAMES = frozenset({"AGENTS.md", "CLAUDE.md"})
 
 # 에이전트 정의가 사는 디렉터리. 파일명은 페르소나 이름이라 자유(reviewer.md 등)
 # — 이름이 아니라 **디렉터리**가 유형이다. 유형명은 폼 파일명과 같아야 한다
-# (load_budgets가 `docs/docs-format/<유형>.md`를 찾는다).
+# (load_budgets가 `docs_format/<유형>.md`를 찾는다).
 _AGENT_DEF_DIR: tuple[str, str] = (".claude", "agents")
 _AGENT_DEF_TYPE = "agent-def"
 
@@ -125,7 +125,7 @@ _COORD = re.compile(r"[\w./-]+\.(?:py|md|sh|json|toml|ya?ml|lock|txt|cfg|ini):\d
 # 추가한다** — "저자가 손댈 수 없는 몫을 저자 예산에 세지 않는다"는 원칙은
 # 마커 종류와 무관하고, 정규식을 손으로 두 군데 고치게 두면 한쪽만 늘어난다.
 _AUTOGEN_MARKERS: tuple[tuple[str, str], ...] = (
-    ("BLUF-INDEX:START", "BLUF-INDEX:END"),      # scripts/gen_readmes.py 롤업
+    ("BLUF-INDEX:START", "BLUF-INDEX:END"),      # gen_readmes 롤업
 ) + tuple(EXTRA_AUTOGEN_MARKERS)
 # **줄 시작 앵커가 핵심이다.** 생성기가 찍는 마커는 언제나 그 줄의 유일한
 # 내용이지만, 프로즈는 마커 문법을 문장 중간에 인용할 수 있다 — 실사고: 그런

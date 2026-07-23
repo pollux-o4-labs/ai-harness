@@ -6,7 +6,7 @@
   자동생성 블록(BLUF-INDEX)도 면제한다 — 저자가 손댈 수 없는 몫을 예산에
   넣으면 지킬 방법이 없다. 줄이려면 원본 문서의 BLUF를 쳐라(그쪽이 정본).
   100줄을 넘으면 한 ADR에 결정이 여러 개 섞인 것이니 쪼갠다(1 레코드 = 1 결정).
-  이 수치의 정본은 이 파일이고 scripts/check_doc_form.py가 파싱해 쓴다.
+  이 수치의 정본은 이 파일이고 ai-harness check-doc가 파싱해 쓴다.
 불변성: Accepted된 ADR은 고쳐 쓰지 않는다. 결정이 번복되면 새 ADR을 쓰고
   이쪽 상태를 Superseded by ADR NNNN으로 바꾼다.
 정정 절: 결정은 유효한데 맥락·근거 서술만 stale이면 새 ADR 없이 그 ADR 하단에
