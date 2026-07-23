@@ -173,3 +173,40 @@ def test_default_root_is_target_repo_not_bundled(tmp_path, monkeypatch):
     readme = tmp_path / "README.md"
     assert readme.exists(), "대상 repo 루트에 README를 안 만들었다 — 엉뚱한 루트"
     assert "a.md" in readme.read_text(encoding="utf-8"), "대상 repo를 루트로 훑지 않았다"
+
+
+# --- extract_bluf: agent-def frontmatter description 대체 인덱싱 ---------------
+#
+# 에이전트 정의(.md)는 `> **BLUF:**` 골격을 안 쓰고 frontmatter description을 쓴다
+# (docs_format/agent-def.md 폼). extract_bluf가 그 description을 BLUF 소스로 잡되,
+# 본문의 우연한 `description:` 줄은 오탐하지 않아야 한다.
+
+
+def test_extract_bluf_reads_frontmatter_description(tmp_path):
+    """frontmatter description을 BLUF 소스로 뽑는다(agent-def 폼)."""
+    f = tmp_path / "agent.md"
+    f.write_text(
+        "---\nname: reviewer-x\ndescription: 상설 리뷰어 — 코드 차원.\n---\n\n본문.\n",
+        encoding="utf-8",
+    )
+    assert gen_readmes.extract_bluf(f) == "상설 리뷰어 — 코드 차원."
+
+
+def test_extract_bluf_prefers_bluf_over_frontmatter_description(tmp_path):
+    """BLUF 줄과 frontmatter description이 둘 다면 명시 BLUF가 이긴다."""
+    f = tmp_path / "both.md"
+    f.write_text(
+        "---\ndescription: frontmatter 설명.\n---\n\n> **BLUF:** 본문 BLUF.\n",
+        encoding="utf-8",
+    )
+    assert gen_readmes.extract_bluf(f) == "본문 BLUF."
+
+
+def test_extract_bluf_ignores_body_description_without_frontmatter(tmp_path):
+    """frontmatter가 아닌 본문의 `description:` 줄은 BLUF로 오인하지 않는다."""
+    f = tmp_path / "prose.md"
+    f.write_text(
+        "# 제목\n\ndescription: 이건 본문 설명이지 BLUF가 아니다.\n",
+        encoding="utf-8",
+    )
+    assert gen_readmes.extract_bluf(f) is None
