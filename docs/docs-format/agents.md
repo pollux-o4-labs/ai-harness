@@ -1,7 +1,7 @@
 > **BLUF:** AGENTS.md·CLAUDE.md의 줄 예산 폼 — 뼈대 없이 예산만 강제한다.
 
 <!--
-폼 대상: AGENTS.md · CLAUDE.md (루트 및 서브레포 주입본)
+폼 대상: AGENTS.md · CLAUDE.md (루트 및 하위 저장소 주입본)
 예산(셋 다 상한): 160줄 · 산문 한 줄 80자·한 문장 · BLUF 100자.
   표 행·코드펜스 내부는 줄 길이에서 면제한다 — 쪼개면 깨진다.
   이 수치의 정본은 이 파일이고 scripts/check_doc_form.py가 파싱해 쓴다.

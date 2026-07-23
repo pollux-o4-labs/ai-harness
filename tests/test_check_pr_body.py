@@ -22,7 +22,7 @@ sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 
 import check_pr_body as cpb  # noqa: E402
 
-# `docs/docs-format/pr-comment.md`는 이 코멘트 게이트를 처음 만든 저장소(vgo)의
+# `docs/docs-format/pr-comment.md`는 이 코멘트 게이트를 처음 만든 저장소의
 # 폼 파일 경로를 그대로 옮겨온 것이다 — repo별 특화 지점(README가 안내)이라 이
 # 저장소엔 아직 없다. 실 배포에서 그 부재는 fail-closed로 이어지는 게 설계대로지만
 # (check_pr_body.py 모듈 docstring), 코멘트 게이트·리뷰 근거 검사의 **로직 자체**를
@@ -146,30 +146,38 @@ def test_measure_ignores_layout_whitespace():
 
 # --- 제4조: 내부 용어 풀이 -------------------------------------------------
 
-def test_jargon_without_gloss_rejected():
-    body = GOOD_BODY.replace("커밋 산출물 기준.", "폴백 경로도 확인.")
-    assert any("'폴백'에 풀이가 없음" in v for v in cpb.check_pr_body(body))
+@pytest.fixture
+def with_jargon(monkeypatch):
+    """공용 도구의 `JARGON_TERMS` 기본값은 빈 튜플(consumer가 채운다)이라, 은어
+    검출 로직을 검증하는 테스트는 테스트-로컬로 목록을 주입한다 — "값이 있으면
+    검출, 없으면 통과"라는 계약을 고정한다."""
+    monkeypatch.setattr(cpb, "JARGON_TERMS", ("테스트약어", "샘플용어"))
 
 
-def test_jargon_with_gloss_passes():
+def test_jargon_without_gloss_rejected(with_jargon):
+    body = GOOD_BODY.replace("커밋 산출물 기준.", "테스트약어 경로도 확인.")
+    assert any("'테스트약어'에 풀이가 없음" in v for v in cpb.check_pr_body(body))
+
+
+def test_jargon_with_gloss_passes(with_jargon):
     body = GOOD_BODY.replace(
-        "커밋 산출물 기준.", "폴백(원문까지 훑는 최후 경로) 확인."
+        "커밋 산출물 기준.", "테스트약어(쉬운 말 설명) 확인."
     )
     assert cpb.check_pr_body(body) == []
 
 
-def test_jargon_in_code_is_ignored():
+def test_jargon_in_code_is_ignored(with_jargon):
     """명령어 안의 용어는 산문이 아니다 — 풀이를 요구하지 않는다."""
-    body = GOOD_BODY.replace("커밋 산출물 기준.", "`vgo status`로 워터마크 확인.")
-    assert any("'워터마크'" in v for v in cpb.check_pr_body(body))
-    body_fenced = GOOD_BODY.replace("커밋 산출물 기준.", "`vgo status --워터마크`")
+    body = GOOD_BODY.replace("커밋 산출물 기준.", "`git status`로 테스트약어 확인.")
+    assert any("'테스트약어'" in v for v in cpb.check_pr_body(body))
+    body_fenced = GOOD_BODY.replace("커밋 산출물 기준.", "`git status --테스트약어`")
     assert cpb.check_pr_body(body_fenced) == []
 
 
-def test_new_repeat_offender_jargon_rejected():
-    """관측된 상습범(fail-open·캐스케이드)도 풀이 없으면 리젝 — 게이트 세션에서
-    풀이 없이 반복 샌 것을 규칙 09대로 목록에 보강했다(목록은 바닥이지 증명 아님)."""
-    for term in ("fail-open", "캐스케이드"):
+def test_configured_jargon_rejected_without_gloss(with_jargon):
+    """설정된 은어는 풀이 없으면 리젝, 괄호 풀이가 붙으면 통과 — 목록에 실린
+    각 용어가 같은 계약을 따른다(목록은 바닥이지 증명 아님)."""
+    for term in ("테스트약어", "샘플용어"):
         body = GOOD_BODY.replace("커밋 산출물 기준.", f"{term} 위험.")
         assert any(f"'{term}'에 풀이가 없음" in v for v in cpb.check_pr_body(body)), term
         glossed = GOOD_BODY.replace("커밋 산출물 기준.", f"{term}(쉬운 말) 위험.")
@@ -279,13 +287,13 @@ def test_every_non_budget_section_has_a_shape():
     문장을 거기로 옮기면 되고, 그러면 예산 게이트가 무력화된다.
 
     실측으로 두 번 당했다:
-    1. `_EXEMPT_SHAPE`에 없는 면제 섹션에 3000자 → 위반 0건.
-    2. `확인` 섹션 뒤에 산문 626자 → `exit 0` 통과. `확인`은 **필수**라 항상 있고
+    1. `_EXEMPT_SHAPE`에 없는 면제 섹션에 장문 산문 → 위반 0건.
+    2. `확인` 섹션 뒤에 붙인 산문 → `exit 0` 통과. `확인`은 **필수**라 항상 있고
        GitHub에서 렌더링되므로 `관련 이슈`보다 더 좋은 은신처였다.
 
     두 번 다 "이 섹션은 형태가 정해져 있다"를 **말로만** 둔 게 원인이다. 그게 이 PR이
     처음 저지른 실수이고, 같은 실수를 한 층 위에서 반복하지 않으려면 이 불변식이
-    코드여야 한다(적대 리뷰 지적).
+    코드여야 한다(리뷰 지적).
     """
     non_budget = set(cpb.EXEMPT_SECTIONS) | {cpb.CHECKLIST_SECTION}
     assert non_budget == set(cpb._EXEMPT_SHAPE), (
@@ -335,7 +343,7 @@ def test_unknown_section_still_rejected():
 #
 # 예산을 안 먹이는 근거가 "정해진 형태라 저자가 줄일 몫이 아니다"이므로, 그 전제를
 # 코드가 강제하지 않으면 근거가 거짓이 된다. 실제로 이 게이트를 도입한 PR 자신이
-# 넘친 산문을 `관련 이슈`로 옮겨 예산 천장을 우회했다(적대 리뷰 실측). 아래가 그
+# 넘친 산문을 `관련 이슈`로 옮겨 예산 천장을 우회했다(리뷰 실측). 아래가 그
 # 회피구를 닫은 것의 회귀다.
 
 def test_prose_in_exempt_section_rejected():
@@ -358,7 +366,7 @@ def test_budget_overflow_cannot_hide_in_exempt_section():
     "Closes #12", "closes #12", "Fixes #3", "Resolves #7", "Refs #1",
     "#42", "- Refs #1", "Refs owner/repo#12",
     "pollux-o4-labs/ai-harness#21",
-    # 아래 3종은 적대 리뷰가 잡은 거짓양성이다 — GitHub이 정상 링크하는 표준 표기인데
+    # 아래 3종은 리뷰가 잡은 거짓양성이다 — GitHub이 정상 링크하는 표준 표기인데
     # "한 줄에 참조 하나" 정규식이 리젝했다. 저자는 "이슈 참조만 쓸 수 있다"는 말을
     # 듣는데 자기는 이슈 참조를 썼다 — 진단하지 않는 처방이었다.
     "Closes #1, #2",
@@ -370,7 +378,7 @@ def test_budget_overflow_cannot_hide_in_exempt_section():
 def test_issue_ref_shapes_accepted(line):
     """실제로 쓰이는 참조 형태는 통과해야 한다 — 못 쓰면 게이트가 아니라 족쇄다.
 
-    이 목록은 상상이 아니라 관측이어야 한다(적대 리뷰 지적: 값을 선언해 놓고 그
+    이 목록은 상상이 아니라 관측이어야 한다(리뷰 지적: 값을 선언해 놓고 그
     값을 안 재고 있었다). 새로 관측되는 표준 표기는 여기 추가한다.
     """
     body = GOOD_BODY.replace("Closes #1", line)
@@ -421,11 +429,11 @@ def test_create_mode_allows_unchecked_checklist():
     assert cpb.check_pr_body(body, require_checklist_complete=False) == []
 
 
-def test_create_mode_still_enforces_format():
+def test_create_mode_still_enforces_format(with_jargon):
     """create여도 형식(은어 등)은 강제된다 — 체크리스트 완료만 유예."""
-    body = GOOD_BODY.replace("[x]", "[ ]").replace("커밋 산출물 기준.", "폴백 확인.")
+    body = GOOD_BODY.replace("[x]", "[ ]").replace("커밋 산출물 기준.", "테스트약어 확인.")
     v = cpb.check_pr_body(body, require_checklist_complete=False)
-    assert any("'폴백'" in x for x in v)  # 은어는 여전히 잡힘
+    assert any("'테스트약어'" in x for x in v)  # 은어는 여전히 잡힘
 
 
 def test_create_mode_still_requires_checklist_section():
@@ -441,8 +449,8 @@ def test_merge_mode_requires_all_checked():
     assert any("체크 안 됨" in x for x in cpb.check_pr_body(body))  # 기본=완료요구
 
 
-def test_checkbox_is_self_report_not_evidence():
-    """체크박스가 강제하는 것은 글자 'x' 하나뿐임을 고정한다(원칙 2).
+def test_checkbox_is_self_report_not_evidence(with_jargon):
+    """체크박스가 강제하는 것은 글자 'x' 하나뿐임을 고정한다(자기보고 불신).
 
     이 테스트가 통과한다는 사실 자체가 체크박스의 한계다 — 본문이 서사·은어
     범벅이어도 체크 한 글자로 이 항목은 통과한다. 실물을 재는 것은 섹션·예산·
@@ -450,11 +458,11 @@ def test_checkbox_is_self_report_not_evidence():
     """
     lying = GOOD_BODY.replace(
         "PR 본문에 섹션·분량·용어풀이 게이트를 건다.",
-        "이 저장소를 모르는 사람은 절대 못 읽는 문장이다.",
+        "배경지식 없는 사람은 절대 못 읽는 문장이다.",
     )
     assert cpb.check_checklist(cpb.parse_sections(lying)) == []
     # 실물을 재는 검사(예산·은어)는 여전히 살아 있다 — 체크박스가 그걸 못 끈다.
-    assert cpb.check_jargon("## 요약\n\nL2 갱신\n") != []
+    assert cpb.check_jargon("## 요약\n\n테스트약어 갱신\n") != []
 
 
 # --- gh 명령에서 본문 추출 --------------------------------------------------
@@ -868,7 +876,7 @@ def test_wired_hook_blocks_merge_when_review_evidence_missing(tmp_path, _real_co
 
     `_real_comment_form` 없이는 폼 파일 부재로 인한 fail-closed와 구분이 안 돼
     "위반 없어서 통과할 뻔한 것"과 "의도한 위반"이 우연히 같은 exit 2로 섞인다
-    (홀로우 그린, 적대 리뷰 지적) — 폼을 실제로 놓아 이 테스트가 노리는 위반
+    (홀로우 그린, 리뷰 지적) — 폼을 실제로 놓아 이 테스트가 노리는 위반
     (코멘트 없음)이 실제 사유가 되게 한다."""
     fake_gh_dir = _make_fake_gh(tmp_path, GOOD_BODY, comments=[])
     assert _run_wired_hook_with_fake_gh("gh pr merge 42", fake_gh_dir) == 2
@@ -886,7 +894,7 @@ def test_wired_hook_blocks_merge_when_review_evidence_stale(tmp_path, _real_comm
 
 # --- 리뷰 근거 존재·신선도(check_review_evidence) -----------------------------
 #
-# 규칙 11 제1조("근거 없는 체크 금지")를 처음 기계로 태우는 검사 — 체크리스트
+# "근거 없는 체크 금지"를 처음 기계로 태우는 검사 — 체크리스트
 # 완료만으론 통과 못 하게 하는 축이다. 헤더 접두어는 pr-comment.md의 예시
 # 문구에서 파싱한다(load_review_header_prefix) — 여기 하드코딩하지 않는다.
 
@@ -1026,15 +1034,15 @@ def test_comment_too_many_lines_rejected():
     assert any(f"> {lines_max}줄" in v for v in violations)
 
 
-def test_comment_jargon_without_gloss_rejected():
+def test_comment_jargon_without_gloss_rejected(with_jargon):
     """JARGON_TERMS의 용어를 괄호 풀이 없이 쓰면 리젝 — 기존 검사기 재사용."""
-    body = GOOD_COMMENT + "- 폴백 경로 확인.\n"
-    assert any("'폴백'에 풀이가 없음" in v for v in cpb.check_comment(body))
+    body = GOOD_COMMENT + "- 테스트약어 경로 확인.\n"
+    assert any("'테스트약어'에 풀이가 없음" in v for v in cpb.check_comment(body))
 
 
 def test_comment_jargon_with_gloss_passes():
     """괄호 풀이가 붙으면 통과."""
-    body = GOOD_COMMENT + "- 폴백(대체 경로) 확인.\n"
+    body = GOOD_COMMENT + "- 테스트약어(대체 경로) 확인.\n"
     assert cpb.check_comment(body) == []
 
 
@@ -1131,7 +1139,7 @@ def test_wired_hook_allows_good_comment(tmp_path, _real_comment_form):
 def test_wired_hook_blocks_bad_comment(tmp_path, _real_comment_form):
     """`_real_comment_form` 없이는 폼 파일 부재로 인한 fail-closed와 구분이 안 돼
     "위반 없어서 통과할 뻔한 것"과 "의도한 위반"(80자 초과)이 우연히 같은 exit 2로
-    섞인다(홀로우 그린, 적대 리뷰 지적) — 폼을 실제로 놓아 이 테스트가 노리는
+    섞인다(홀로우 그린, 리뷰 지적) — 폼을 실제로 놓아 이 테스트가 노리는
     위반이 실제 사유가 되게 한다."""
     p = tmp_path / "comment.md"
     p.write_text("가" * 90 + "\n", encoding="utf-8")
@@ -1251,7 +1259,7 @@ def test_merge_recognizes_global_repo_flag(monkeypatch):
 # 템플릿 문구와 REQUIRED_CHECKS가 한 글자라도 어긋나면 그 레포의 **모든 PR이 머지
 # 불가**가 된다(check_checklist가 정확일치를 요구하므로). 그런데 템플릿 파일을 읽는
 # 테스트가 하나도 없으면, 어느 쪽이 드리프트해도 스위트는 초록이다 — 이 게이트가
-# 고치려는 버그와 정확히 같은 부류다(적대 리뷰 실측).
+# 고치려는 버그와 정확히 같은 부류다(리뷰 실측).
 #
 # 대조 대상이 **파일**이므로 자기참조가 아니다: 상수에서 케이스를 파생하되 상수와
 # 파일을 맞대므로, 한쪽만 지우면 반드시 깨진다.

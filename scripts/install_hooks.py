@@ -3,7 +3,7 @@
 """git 훅 설치기(stdlib only).
 
 `.git/hooks`는 버전관리되지 않으므로, 커밋되는 `hooks/` 디렉터리의 훅 템플릿
-(예: post-merge → canonical L2 auto-refresh)을 `.git/hooks/`로 복사하고 실행
+(예: post-merge 훅 등)을 `.git/hooks/`로 복사하고 실행
 비트를 켠다. 멱등 — 여러 번 돌려도 안전(같은 내용이면 재복사만). 기존 훅이 있고
 내용이 다르면 덮기 전 경고를 출력한다(사용자 커스텀 훅 실수 방지).
 
@@ -13,8 +13,8 @@
                                                         #   포렌식 로거 자동시작(옵트인)
 
 `--forensics-autostart`는 **전역 부작용**(~/.bashrc 편집)이라 기본 동작에서
-제외하고 명시 옵트인으로만 배선한다 — ADR 0016의 "운영자 명시 동의 원칙"
-(git 훅도 자동설치 안 함)과 동형(감사 2026-07-12).
+제외하고 명시 옵트인으로만 배선한다 — "운영자 명시 동의 원칙"
+(git 훅도 자동설치 안 함)과 동형.
 """
 from __future__ import annotations
 
@@ -77,8 +77,8 @@ def install_hooks() -> int:
 
 
 FORENSICS_SCRIPT = REPO_ROOT / "scripts" / "monitoring" / "crash-forensics.sh"
-_FORENSICS_MARK_BEGIN = "# >>> vgo crash-forensics autostart >>>"
-_FORENSICS_MARK_END = "# <<< vgo crash-forensics autostart <<<"
+_FORENSICS_MARK_BEGIN = "# >>> crash-forensics autostart >>>"
+_FORENSICS_MARK_END = "# <<< crash-forensics autostart <<<"
 
 
 def _forensics_block() -> str:
@@ -101,7 +101,7 @@ def install_forensics_autostart(bashrc_path: Path | None = None) -> bool:
     """크래시 포렌식 로거를 ~/.bashrc에 멱등 자동시작 배선(감사 GAP-1).
 
     이미 마커 블록이 있으면 no-op(멱등). 반환: 새로 추가했으면 True. **전역 부작용
-    (~/.bashrc 편집)이므로 무엇을 했는지 명시 출력**(규칙 00)."""
+    (~/.bashrc 편집)이므로 무엇을 했는지 명시 출력**."""
     bashrc = bashrc_path or (Path.home() / ".bashrc")
     existing = bashrc.read_text(encoding="utf-8") if bashrc.exists() else ""
     if _FORENSICS_MARK_BEGIN in existing:
@@ -128,9 +128,9 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     install_hooks()
-    # ~/.bashrc 편집은 전역 부작용이라 기본 동작에 안 넣는다 — ADR 0016의
-    # "운영자 명시 동의 원칙"(git 훅도 자동설치 안 함)과 동형으로 옵트인 게이트
-    # (감사 리뷰 2026-07-12). 이 설치기의 기본 계약은 여전히 "git 훅만".
+    # ~/.bashrc 편집은 전역 부작용이라 기본 동작에 안 넣는다 —
+    # "운영자 명시 동의 원칙"(git 훅도 자동설치 안 함)과 동형으로 옵트인 게이트.
+    # 이 설치기의 기본 계약은 여전히 "git 훅만".
     if args.forensics_autostart:
         install_forensics_autostart()
     return 0

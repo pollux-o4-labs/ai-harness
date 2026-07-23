@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-# BLUF: 각 폴더 하위 문서/폴더의 BLUF를 모아 README.md의 자동 인덱스 블록만 생성·갱신하는 결정적 스크립트(LLM 0). ADR 0014 L1.
+# BLUF: 각 폴더 하위 문서/폴더의 BLUF를 모아 README.md의 자동 인덱스 블록만 생성·갱신하는 결정적 스크립트(LLM 0).
 """
-gen_readmes.py — BLUF 기반 README 자동 생성기 (ADR 0014 L1: 결정적 롤업, LLM 0)
+gen_readmes.py — BLUF 기반 README 자동 생성기 (결정적 롤업, LLM 0)
 
-출처: /mnt/e/work/personal/scripts/gen_readmes.py 이식(personal ADR 0001-readme-bluf-rollup 검증본).
+출처: 개인 도구에서 이식·검증한 BLUF 롤업 구현.
 적용: BLUF 마커를 모아 폴더 README 인덱스를 결정적으로 생성한다 — DB·LLM 세션 불요.
 
 규약(convention):
@@ -55,9 +55,9 @@ ASSET_EXTS = {
 }
 _ASSET_COLLAPSE_MIN = 4  # 같은 확장자 자산이 이 개수 이상이면 `*.ext N개`로 집약.
 
-# 에이전트 설정 파일 — 지식 문서가 아니라 툴 설정(ADR 0021 슬라이스 2b). BLUF·인덱스
+# 에이전트 설정 파일 — 지식 문서가 아니라 툴 설정. BLUF·인덱스
 # 대상에서 제외한다(저장소가 관리하는 마커 블록만 실림, BLUF 요구 없음).
-# 주: onboard.py에도 동일 상수(AGENT_CONFIG_NAMES)를 둔다 — gen_readmes는 의존성
+# 주: 저장소의 온보딩 스크립트 등에도 동일 상수를 둘 수 있다 — gen_readmes는 의존성
 # 경량(LLM 0, standalone) 유지 위해 무거운 패키지를 import하지 않으므로 의도적 미러.
 AGENT_CONFIG_NAMES = {"AGENTS.md", "CLAUDE.md"}
 
@@ -138,7 +138,7 @@ def is_git_ignored(path: Path) -> bool:
     """Return whether Git excludes a local-only artifact from repository indexes.
 
     cwd는 대상 경로의 부모(그 파일이 속한 git repo) — REPO_ROOT로 고정하면 대상이
-    중첩된 다른 저장소(예: 미러 클론)에 있을 때 REPO_ROOT 저장소의 .gitignore로 오판한다(ADR 0021 F3)."""
+    중첩된 다른 저장소(예: 미러 클론)에 있을 때 REPO_ROOT 저장소의 .gitignore로 오판한다."""
     parent = path.parent if path.parent.exists() else REPO_ROOT
     result = subprocess.run(
         ["git", "check-ignore", "-q", "--", str(path)],

@@ -74,7 +74,7 @@ def real_forms(fake_repo, monkeypatch):
 
 @pytest.fixture
 def with_extra_marker(real_forms, monkeypatch):
-    """`gate_config.EXTRA_AUTOGEN_MARKERS`가 두 번째 마커 쌍(`vgo:managed`류)을
+    """`gate_config.EXTRA_AUTOGEN_MARKERS`가 두 번째 마커 쌍(`app:managed`류)을
     채웠다고 가정하고 돌린다 — 이 저장소 자신은 그런 도구가 없어 실제로는
     비어 있지만(핵심 값이 core에 없어야 하는 이유는 gate_config.py 참고), "마커가
     여럿일 때 core 로직(교차 검출·프로즈 인용 방어 등)이 옳게 동작하는가"는
@@ -82,7 +82,7 @@ def with_extra_marker(real_forms, monkeypatch):
     모듈 임포트 시점에 굳어(gate_config 값을 나중에 바꿔도 소급 안 됨) 파생된
     세 속성(`_AUTOGEN_MARKERS`·`_AUTOGEN_START`·`_AUTOGEN_END`)을 함께
     monkeypatch한다."""
-    markers = cdf._AUTOGEN_MARKERS + (("vgo:managed:begin", "vgo:managed:end"),)
+    markers = cdf._AUTOGEN_MARKERS + (("app:managed:begin", "app:managed:end"),)
     monkeypatch.setattr(cdf, "_AUTOGEN_MARKERS", markers)
     monkeypatch.setattr(
         cdf, "_AUTOGEN_START",
@@ -207,30 +207,30 @@ def test_authored_lines_still_counted_around_autogen_block(real_forms):
     assert any("101줄 > 100줄" in v for v in violations)
 
 
-def test_vgo_managed_block_also_exempt_from_line_budget(with_extra_marker):
-    """`vgo:managed` 블록도 자동생성이다 — onboard.py가 멱등 splice한다.
+def test_app_managed_block_also_exempt_from_line_budget(with_extra_marker):
+    """`app:managed` 블록도 자동생성이다 — 온보딩 스크립트가 멱등 splice한다.
 
-    이 마커가 면제 밖이면, onboard가 블록을 갱신할 때 기계가 만든 줄 때문에
+    이 마커가 면제 밖이면, 온보딩 스크립트가 블록을 갱신할 때 기계가 만든 줄 때문에
     pre-commit이 기계가 만든 커밋을 리젝한다. BLUF-INDEX가 겪던 것과 같은 병리다.
     """
     managed = (
-        "<!-- vgo:managed:begin -->\n"
+        "<!-- app:managed:begin -->\n"
         + "관리 블록 줄.\n" * 50
-        + "<!-- vgo:managed:end -->\n"
+        + "<!-- app:managed:end -->\n"
     )
     doc = _write_doc("docs/rules/x.md", "x\n" * 60 + managed)
     assert cdf.check_file(doc) == []
 
 
-def test_vgo_managed_block_exempt_from_prose_rules(with_extra_marker):
+def test_app_managed_block_exempt_from_prose_rules(with_extra_marker):
     """관리 블록 안 산문은 문장·길이 규칙에서도 면제된다 — 저자가 못 고친다.
 
-    실증: AGENTS.md의 vgo:managed 블록이 "문장이 여럿" 위반 3건을 내고 있었다.
+    실증: AGENTS.md의 app:managed 블록이 "문장이 여럿" 위반을 내고 있었다.
     """
     managed = (
-        "<!-- vgo:managed:begin -->\n"
+        "<!-- app:managed:begin -->\n"
         "첫 문장이다. 같은 줄에 둘째 문장도 있다. 셋째도 있다.\n"
-        "<!-- vgo:managed:end -->\n"
+        "<!-- app:managed:end -->\n"
     )
     doc = _write_doc("docs/rules/x.md", "x\n" * 10 + managed)
     assert cdf.check_file(doc) == []
@@ -239,14 +239,14 @@ def test_vgo_managed_block_exempt_from_prose_rules(with_extra_marker):
 def test_marker_quoted_in_prose_does_not_open_a_block(with_extra_marker):
     """프로즈 안의 마커 인용은 블록 시작이 아니다.
 
-    실사고: `docs/adr/0021`이 본문에서 `<!-- vgo:managed:begin/end -->`를 인용했는데,
-    부분일치 정규식이 이를 블록 시작으로 읽어 파일 끝까지 면제했다 — 위반 18건이
+    실사고: 설계 문서가 본문에서 `<!-- app:managed:begin/end -->`를 인용했는데,
+    부분일치 정규식이 이를 블록 시작으로 읽어 파일 끝까지 면제했다 — 위반이
     조용히 숨었다. 코드펜스 미닫힘은 렌더가 깨져 저자가 알아채지만, HTML 주석은
     렌더에 안 보여 아무 신호가 없다.
     """
     doc = _write_doc(
         "docs/rules/x.md",
-        "마커 `<!-- vgo:managed:begin -->`를 쓴다고 설명하는 줄이다.\n" + "가" * 90 + "\n",
+        "마커 `<!-- app:managed:begin -->`를 쓴다고 설명하는 줄이다.\n" + "가" * 90 + "\n",
     )
     violations = cdf.check_file(doc)
     assert any("90자 > 80자" in v for v in violations)
@@ -263,10 +263,10 @@ def test_crossed_autogen_markers_fail_toward_stricter(with_extra_marker):
     doc = _write_doc(
         "docs/rules/x.md",
         "<!-- BLUF-INDEX:START -->\n"
-        "<!-- vgo:managed:begin -->\n"
+        "<!-- app:managed:begin -->\n"
         "<!-- BLUF-INDEX:END -->\n"
         + "가" * 90 + "\n"
-        "<!-- vgo:managed:end -->\n",
+        "<!-- app:managed:end -->\n",
     )
     violations = cdf.check_file(doc)
     assert any("90자 > 80자" in v for v in violations)
@@ -320,7 +320,7 @@ def _review_ref(total_len: int, marker: str = "✅") -> str:
 def test_long_review_ref_span_is_not_exempt(real_forms):
     """대괄호 안에 산문을 넣어 80자 상한을 우회하던 통로를 막는다(이슈 72).
 
-    실측: `docs/features/ingest.md`의 한 줄이 원본 320자인데 검증 참조를 빼면
+    실측: 한 문서의 한 줄이 원본에서 산문 예산을 넘겼는데 검증 참조를 빼면
     40자가 되어 통과했다. 스팬 자체가 산문 예산을 넘으면 면제하지 않는다.
     """
     span = _review_ref(200, marker="⚠️")
@@ -751,7 +751,7 @@ def test_whitelisted_path_is_exempt(real_forms, monkeypatch):
 
 
 def test_whitelist_defaults_to_empty():
-    """WHITELIST는 비어 있는 게 기본 — 면제 문서 없음(의도된 상태, 원칙 5).
+    """WHITELIST는 비어 있는 게 기본 — 면제 문서 없음(의도된 상태).
     누군가 조용히 항목을 미리 채워두면 이 테스트가 깨진다."""
     assert cdf.WHITELIST == frozenset()
 
@@ -769,19 +769,19 @@ def test_type_without_own_form_falls_back_to_global(real_forms):
 def test_agent_definition_path_has_its_own_type(real_forms):
     """`.claude/agents/*.md`는 유형 판정을 받아야 한다 — 전에는 None이라 rules
     전역 폴백으로 **우연히** 떨어졌다(이슈 60). 우연은 근거가 아니다."""
-    assert cdf.doc_type(Path(".claude/agents/vgo-lead.md")) == "agent-def"
+    assert cdf.doc_type(Path(".claude/agents/reviewer.md")) == "agent-def"
 
 
 def test_agent_definition_nested_in_another_repo_is_deferred_not_supported(real_forms):
-    """중첩 저장소의 `<서브레포>/.claude/agents/`는 **의도적으로** 유형이 아니다.
+    """중첩 저장소의 `<하위 저장소>/.claude/agents/`는 **의도적으로** 유형이 아니다.
 
     `docs/<유형>/` 갈래와 대칭으로 경로 맨 앞만 본다. "어디서든" 스캔하는 쪽이
-    더 넓지만 활성 사례가 0이라 유예했다(규칙 05 제7조) — 실측 근거:
+    더 넓지만 활성 사례가 0이라 유예했다 — 실측 근거:
 
     - pre-commit은 언제나 자기 저장소 루트(`git rev-parse --show-toplevel`)
-      기준으로만 --staged를 돈다. 서브레포는 별개 저장소라 각자 훅이 각자 루트다.
-    - vgo의 경우 다른 레포 트리가 중첩되는 유일한 경로(ADR 0021 미러
-      `.data/mirrors/`)는 .gitignore 대상이라 --staged가 못 본다.
+      기준으로만 --staged를 돈다. 하위 저장소는 별개 저장소라 각자 훅이 각자 루트다.
+    - 다른 레포 트리가 중첩되는 경로(예: 미러 클론)는 보통 .gitignore
+      대상이라 --staged가 못 본다.
     - doc_type()/check_file()을 그런 경로로 부르는 코드가 없다(호출자 0건).
 
     이 테스트가 깨지는 날 = 위치-무관 스캔을 재도입한 날이다. 그때는 위 세 근거가
@@ -794,7 +794,7 @@ def test_agent_definition_nested_in_another_repo_is_deferred_not_supported(real_
 def test_existing_type_branches_not_broken_by_agent_def(real_forms):
     """회귀: 기존 두 갈래(docs/<유형>/ · _AGENT_CONFIG_NAMES)는 그대로다."""
     assert cdf.doc_type(Path("docs/rules/08-doc-authoring-norms.md")) == "rules"
-    assert cdf.doc_type(Path("docs/features/ingest.md")) == "features"
+    assert cdf.doc_type(Path("docs/features/x.md")) == "features"
     assert cdf.doc_type(Path("AGENTS.md")) == "agents"
     assert cdf.doc_type(Path("CLAUDE.md")) == "agents"
     assert cdf.doc_type(Path(".claude/settings.json")) is None
@@ -945,7 +945,7 @@ def test_staged_rejects_when_staged_md_violates(tmp_path):
 #
 # 유닛테스트가 아니라 **커밋되는 hooks/pre-commit 그 자체**를 실행한다 —
 # check_pr_body의 settings.json 쉘 한 줄과 동형 위험: 검사기 부재 시 훅이
-# 죽으면 저장소의 모든 커밋이 막힌다(게이트가 자기 자신을 잠금, ADR 0029 조건3).
+# 죽으면 저장소의 모든 커밋이 막힌다(게이트가 자기 자신을 잠금).
 
 def _install_precommit_hook(repo: Path) -> None:
     """실제 커밋되는 hooks/pre-commit을 .git/hooks/로 복사·chmod +x —
@@ -1046,7 +1046,7 @@ def test_body_after_frontmatter_still_checked(real_forms):
 def test_horizontal_rule_does_not_open_frontmatter(real_forms):
     """본문 중간의 수평선 `---`은 frontmatter를 열지 않는다.
 
-    자동생성 마커가 부분일치라 본문 인용부터 파일 끝까지 면제돼 위반 18건이
+    자동생성 마커가 부분일치라 본문 인용부터 파일 끝까지 면제돼 위반이
     숨었던 실사고와 같은 부류다 — 여는 자리를 파일 첫 줄로 못 박지 않으면
     수평선 하나가 나머지 문서 전체의 게이트를 끈다.
     """

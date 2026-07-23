@@ -20,9 +20,9 @@ def test_rule_cite_empty_base_yields_empty_string():
 
 
 def test_rule_cite_with_article():
-    assert gc.rule_cite("규칙 08", "제3조") == "(규칙 08 제3조)"
+    assert gc.rule_cite("스타일 규칙", "3항") == "(스타일 규칙 3항)"
 
 
 def test_rule_cite_without_article():
     """article 생략 시 base만 괄호에 담긴다."""
-    assert gc.rule_cite("규칙 08") == "(규칙 08)"
+    assert gc.rule_cite("스타일 규칙") == "(스타일 규칙)"
