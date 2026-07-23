@@ -34,7 +34,11 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+from ai_harness.config import target_root
+
 # ── 설정 ─────────────────────────────────────────────────────────────────────
+# 번들 패키지의 src/ 경로 — 루트 기본값이 아니라 git-ignore 판정의 폴백 cwd로만 쓴다.
+# (루트 기본값은 대상 저장소 git 루트 = target_root, main 참조.)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 # 이름이 아래에 걸리거나 '.'로 시작하는 폴더는 건너뛴다(예외처리: root의 시스템/사설 폴더).
@@ -114,6 +118,16 @@ def extract_bluf(path: Path) -> str | None:
     m = re.search(r"<!--\s*BLUF:\s*(.+?)\s*-->", joined, re.IGNORECASE | re.DOTALL)
     if m:
         return " ".join(m.group(1).split())
+    # YAML frontmatter의 description: — 에이전트 정의(.claude/agents/*.md 계열)는
+    # BLUF 골격 대신 frontmatter를 쓴다(docs_format/agent-def.md 폼과 정합). 그
+    # description을 인덱스 항목으로 삼아 BLUF 요구와 충돌하지 않게 한다.
+    if head and head[0].strip() == "---":
+        for line in head[1:]:
+            if line.strip() == "---":
+                break
+            m = re.match(r"\s*description:\s*(.+?)\s*$", line)
+            if m:
+                return m.group(1).strip().strip('"').strip("'")
     return None
 
 
@@ -317,10 +331,14 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="BLUF 기반 README 자동 생성기")
     ap.add_argument("--check", action="store_true",
                     help="드라이런: 변경 필요/누락 BLUF가 있으면 비영 종료(파일 미수정)")
-    ap.add_argument("--root", default=str(REPO_ROOT), help="저장소 루트 경로")
+    ap.add_argument("--root", default=None,
+                    help="저장소 루트 경로(기본: 대상 저장소 git 루트)")
     args = ap.parse_args()
 
-    root = Path(args.root).resolve()
+    # 기본 루트 = 대상 저장소 git 루트. 설치형 CLI로 남의 repo에서 돌 때 번들
+    # 패키지 위치(REPO_ROOT=src/)가 아니라 그 저장소를 대상으로 삼아야 한다 —
+    # check-pr·check-doc과 같은 target_root()로 대상 탐색을 단일화한다.
+    root = Path(args.root).resolve() if args.root else target_root()
     changed: list[Path] = []
     missing_bluf: list[Path] = []
     todo_folders: list[Path] = []

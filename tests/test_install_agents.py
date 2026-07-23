@@ -17,7 +17,8 @@ def _init_repo(repo: Path) -> None:
 
 
 def _bundled_names() -> list[str]:
-    return sorted(p.name for p in _BUNDLED.glob("*.md"))
+    # install_agents는 폴더 인덱스 README.md를 복사하지 않는다(템플릿만) — 기대치도 맞춘다.
+    return sorted(p.name for p in _BUNDLED.glob("*.md") if p.name != "README.md")
 
 
 def test_installs_templates_into_target(tmp_path, monkeypatch):
@@ -28,6 +29,7 @@ def test_installs_templates_into_target(tmp_path, monkeypatch):
     assert ia.install_agents() == len(names)
     dst = repo / ".claude" / "agents"
     assert sorted(p.name for p in dst.glob("*.md")) == names
+    assert not (dst / "README.md").exists()  # 폴더 인덱스는 템플릿 아님 → 미설치
     for name in names:  # 신규 복사 = 내용 동일
         assert (dst / name).read_text(encoding="utf-8") == (_BUNDLED / name).read_text(encoding="utf-8")
 

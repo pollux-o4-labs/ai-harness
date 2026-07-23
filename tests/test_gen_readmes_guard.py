@@ -152,3 +152,24 @@ def test_gitignored_folder_not_generated_or_indexed(tmp_path, monkeypatch):
     assert not (scratch / "upload" / "README.md").exists(), "gitignore 하위까지 생성"
     root_readme = (tmp_path / "README.md").read_text(encoding="utf-8")
     assert "scratch/" not in root_readme, "gitignore된 폴더가 상위 인덱스에 실림 — 즉시 drift"
+
+
+# --- 기본 루트는 대상 저장소다 -------------------------------------------------
+#
+# gen_readmes.py가 scripts/에서 src/ai_harness/로 이사하며 REPO_ROOT(=__file__의
+# parent.parent)가 repo 루트에서 번들 패키지 src/로 밀렸다. 그걸 --root 기본값으로
+# 두면 설치형 CLI로 남의 repo에서 돌 때 대상이 아니라 설치된 패키지 폴더를 훑는다
+# (사실상 고장). 기본 루트는 대상 저장소 git 루트여야 한다 — check-pr·check-doc과 동일.
+
+
+def test_default_root_is_target_repo_not_bundled(tmp_path, monkeypatch):
+    """--root 없으면 대상 저장소(git 루트)를 훑는다 — 번들 패키지 src/가 아니라."""
+    _git_repo(tmp_path)
+    (tmp_path / "a.md").write_text("> **BLUF:** 문서 A.\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)  # cwd 기준 git toplevel = tmp_path
+    monkeypatch.setattr(sys, "argv", ["gen_readmes.py"])  # --root 생략
+
+    assert gen_readmes.main() == 0
+    readme = tmp_path / "README.md"
+    assert readme.exists(), "대상 repo 루트에 README를 안 만들었다 — 엉뚱한 루트"
+    assert "a.md" in readme.read_text(encoding="utf-8"), "대상 repo를 루트로 훑지 않았다"
