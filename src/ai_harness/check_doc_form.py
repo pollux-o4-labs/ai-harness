@@ -25,14 +25,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-from gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
-from gate_config import rule_cite as _rule_cite
+from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
+from ai_harness.gate_config import rule_cite as _rule_cite
 
 # CWD가 아니라 이 스크립트 자신의 위치에 앵커링한다 — CWD 상대였을 때 다른
 # 디렉터리에서 불러오면 폼을 못 찾고, 그러면 아래 load_budgets가 빈 dict를
 # 반환해 예산이 전부 None이 되어 검사를 통째로 건너뛰고 조용히 통과했다
 # (회귀: 같은 파일이 CWD만 바꿔도 판정이 뒤집힘).
-FORM_DIR = Path(__file__).resolve().parent.parent / "docs" / "docs-format"
+FORM_DIR = Path(__file__).resolve().parent / "docs_format"
 
 # 폼에서 예산을 뽑는 패턴. 폼이 정본이므로 수치는 코드에 없다.
 # 실제 폼 문구는 "100줄 · 산문 한 줄 80자 · BLUF 한 줄 100자(마커 제외)."이지

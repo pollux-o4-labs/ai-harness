@@ -24,6 +24,12 @@ from __future__ import annotations
 
 from typing import Callable
 
+# 이 저장소에서 끌 게이트 서브커맨드 이름(예: "gen-readmes"). **기본은 전부 켬**
+# — 비어 있으면 설치된 게이트가 모두 돈다(BLUF·문서폼·PR본문). 특정 게이트가
+# 맞지 않는 저장소만 여기서 예외로 끈다(opt-out). CLI 디스패처가 대상 저장소의
+# 이 값을 읽어 해당 게이트를 no-op 처리한다.
+DISABLED_GATES: tuple[str, ...] = ()
+
 # 제3자가 한 번에 못 읽는 그 저장소의 내부 용어 — 첫 등장에 괄호 풀이를 요구한다
 # (금지가 아니다. 그 용어가 주제인 PR을 못 쓰게 되면 게이트가 꺼진다).
 # **완결 목록이 아니라 상습범 목록이다** — 여기 없는 은어가 통과하는 게 정상이고,
@@ -75,7 +81,7 @@ def build_exempt_shape() -> dict[str, tuple[Callable[[str], bool], str]]:
     EXEMPT_SHAPE를 채운다 — 그 시점엔 이 두 이름이 이미 있으므로 이 지연
     임포트가 항상 성립한다.
     """
-    from check_pr_body import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
+    from ai_harness.check_pr_body import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
 
     return {
         "변경 유형": (

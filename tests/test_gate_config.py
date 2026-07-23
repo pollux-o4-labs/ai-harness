@@ -9,9 +9,7 @@ import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(_REPO_ROOT / "scripts"))
-
-import gate_config as gc  # noqa: E402
+import ai_harness.gate_config as gc  # noqa: E402
 
 
 def test_rule_cite_empty_base_yields_empty_string():

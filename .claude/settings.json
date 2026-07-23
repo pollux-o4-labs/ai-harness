@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "if [ -f \"$CLAUDE_PROJECT_DIR/scripts/check_pr_body.py\" ]; then python3 \"$CLAUDE_PROJECT_DIR/scripts/check_pr_body.py\" --hook; fi"
+            "command": "if command -v ai-harness >/dev/null 2>&1; then ai-harness check-pr --hook; fi"
           }
         ]
       }

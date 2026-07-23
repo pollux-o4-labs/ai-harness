@@ -136,7 +136,7 @@ def is_checkbox_line(line: str) -> bool:
 # 모듈 맨 위가 아니라 함수 안에 지연시켜 두므로, 이 파일이 gate_config.py보다
 # 나중에 로드되는 순서(아래)뿐 아니라 먼저 로드되는 순서(gate_config.py를
 # 다른 스크립트가 먼저 불렀을 때)도 안전하다.
-from gate_config import (  # noqa: E402
+from ai_harness.gate_config import (  # noqa: E402
     EXEMPT_SECTIONS,
     JARGON_TERMS,
     RULE_REVIEW_EVIDENCE,
@@ -176,7 +176,7 @@ REQUIRED_CHECKS: tuple[str, ...] = (
 # fail-closed로 리젝한다(우회가 아니라 "아직 안 채운 설정"임을 알리는 것) —
 # 저장소가 이 경로에 폼 파일을 작성하면 그때부터 켜진다.
 _COMMENT_FORM_PATH = (
-    Path(__file__).resolve().parent.parent / "docs" / "docs-format" / "pr-comment.md"
+    Path(__file__).resolve().parent / "docs_format" / "pr-comment.md"
 )
 _COMMENT_BUDGET_PATS = {
     "line_chars": re.compile(r"산문 한 줄 (\d+)자"),

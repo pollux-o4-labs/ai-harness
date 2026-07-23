@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+dist/
+*.egg-info/
 
 # 세션 인계(로컬 전용, 공개 안 함)
 handoff/
