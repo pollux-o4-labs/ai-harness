@@ -1083,6 +1083,29 @@ def test_check_comment_enforces_skeleton_for_review_comment():
     assert any("골격 미달" in v for v in cpb.check_comment(_REVIEW_THIN))
 
 
+def test_review_skeleton_label_needs_word_boundary():
+    """등급 라벨은 단어경계로 본다 — 'TOKEN'의 OK·'UNIT'의 NIT는 라벨 아님."""
+    body = (
+        "## 리뷰 종합 — 1차 (abc1234)\n"
+        "API TOKEN 처리와 UNIT 테스트를 확인함.\n"
+        "## 확인 항목 근거\n- 가독성: 통과.\n## 검증\n- exit 0.\n"
+    )
+    assert any("등급 라벨 없음" in v for v in cpb.check_review_skeleton(body))
+
+
+def test_review_skeleton_noop_when_form_lacks_declaration(monkeypatch, tmp_path):
+    """폼에 골격 선언이 없으면(구버전 폼) check_review_skeleton은 no-op —
+    저장소별 토글이 아니라 '선언 미주입 폼'일 때만 발동하는 분기."""
+    form = tmp_path / "pr-comment.md"
+    form.write_text(  # 예산·헤더만, 골격 선언 없음
+        "예산(둘 다 상한): 40줄 · 산문 한 줄 80자·한 문장.\n"
+        "헤더 — `## 리뷰 종합 — 2차 (8c8f4f7)`.\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cpb, "_COMMENT_FORM_PATH", form)
+    assert cpb.check_review_skeleton(_REVIEW_THIN) == []
+
+
 def test_comment_code_fence_line_exempt():
     """펜스 안의 긴 줄·문장 여럿은 면제 — 명령·출력 인용은 쪼개면 깨진다."""
     fenced = "```\n" + ("x" * 90) + "\n첫 문장이다. 둘째 문장.\n```\n"

@@ -188,9 +188,10 @@ _COMMENT_BUDGET_PATS = {
 # 고치면 되고 이 스크립트는 안 건드린다.
 _REVIEW_HEADER_EXAMPLE = re.compile(r"`(##\s+.+?)\s*—\s*\d+차\s*\([0-9a-fA-F]+\)`")
 
-# 리뷰 종합 코멘트 골격 선언 — pr-comment.md가 정본. 필수 `##` 섹션·닫힌 등급
-# 라벨을 예산·헤더와 같은 관례로 파싱한다. 선언이 없으면 골격 강제는 no-op
-# (그 저장소는 이 축을 안 켠 것) — load_review_skeleton·check_review_skeleton 참조.
+# 리뷰 종합 코멘트 골격 선언 — pr-comment.md(core 번들)가 정본. 필수 `##`
+# 섹션·닫힌 등급 라벨을 예산·헤더와 같은 관례로 파싱한다. 선언이 없으면 골격
+# 강제는 no-op(저장소별 토글 아님 — 구버전 폼일 때만) — load_review_skeleton·
+# check_review_skeleton 참조.
 _REVIEW_SECTIONS_PAT = re.compile(r"필수 `##` 섹션:\s*(.+?)\.")
 _REVIEW_LABELS_PAT = re.compile(r"등급 라벨\(닫힌 집합\):\s*(.+?)\.")
 
@@ -389,15 +390,23 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
 # 구조는 그대로 강제하고, 내부 용어 풀이도 그대로 적용한다(체크리스트의 은어
 # 검수 항목이 "PR에 작성된 글" 전체를 대상으로 하고 코멘트도 그 글이다).
 
+def _read_comment_form_text() -> str | None:
+    """코멘트 폼(pr-comment.md, core 번들) 텍스트 — 없으면 None. 예산·헤더·골격
+    로더가 공유하는 단일 읽기 지점(파일읽기 3중 복붙 제거)."""
+    if not _COMMENT_FORM_PATH.is_file():
+        return None
+    return _COMMENT_FORM_PATH.read_text(encoding="utf-8")
+
+
 def load_comment_budgets() -> dict[str, int]:
     """`docs_format/pr-comment.md`에서 코멘트 예산을 뽑는다.
 
     폼이 정본이라 수치를 여기 하드코딩하지 않는다. 못 뽑으면 빈 dict를
     반환한다 — fail-closed 판단은 check_comment가 한다.
     """
-    if not _COMMENT_FORM_PATH.is_file():
+    text = _read_comment_form_text()
+    if text is None:
         return {}
-    text = _COMMENT_FORM_PATH.read_text(encoding="utf-8")
     out: dict[str, int] = {}
     for key, pat in _COMMENT_BUDGET_PATS.items():
         m = pat.search(text)
@@ -413,9 +422,9 @@ def load_review_header_prefix() -> str | None:
     load_comment_budgets와 같은 이유로 토큰을 이 파일에 재서술하지 않는다.
     못 뽑으면 None — fail-closed 판단은 호출자(check_review_evidence)가 한다.
     """
-    if not _COMMENT_FORM_PATH.is_file():
+    text = _read_comment_form_text()
+    if text is None:
         return None
-    text = _COMMENT_FORM_PATH.read_text(encoding="utf-8")
     m = _REVIEW_HEADER_EXAMPLE.search(text)
     return m.group(1).strip() if m else None
 
@@ -425,12 +434,13 @@ def load_review_skeleton() -> tuple[list[str], list[str]]:
     등급 라벨을 뽑는다(폼이 정본, 예산·헤더와 같은 파싱 관례).
 
     반환: (required_sections, verdict_labels). 폼이 선언을 안 했으면 각각 빈
-    리스트 — 그 저장소는 골격 강제를 안 켠 것이라 check_review_skeleton이 no-op
-    이 된다. 예산의 fail-closed와 다른 이유: 예산은 '잴 자가 없음'이지만 골격은
-    '이 축을 안 쓰는 저장소'라 통과가 맞다(원칙 5, 단계적 도입)."""
-    if not _COMMENT_FORM_PATH.is_file():
+    리스트라 check_review_skeleton이 no-op이 된다. 폼은 전 레포 공통 core라
+    이건 저장소별 토글이 아니라 '선언을 아직 안 넣은 폼(구버전)'일 때만
+    발동한다. 예산의 fail-closed와 다른 이유: 예산은 '잴 자가 없음'이라 리젝
+    하지만, 골격 미선언은 '이 검사를 아직 안 켠 것'이라 통과가 맞다(원칙 5)."""
+    text = _read_comment_form_text()
+    if text is None:
         return [], []
-    text = _COMMENT_FORM_PATH.read_text(encoding="utf-8")
     sm = _REVIEW_SECTIONS_PAT.search(text)
     lm = _REVIEW_LABELS_PAT.search(text)
     sections = [s.strip() for s in sm.group(1).split(",")] if sm else []
@@ -535,7 +545,11 @@ def check_review_skeleton(body: str) -> list[str]:
     for sec in required:
         if not any(sec in h for h in present):
             violations.append(f"리뷰 종합 코멘트에 `## {sec}` 섹션 없음 — 골격 미달.")
-    if labels and not any(lbl in body for lbl in labels):
+    # 단어경계로 본다 — 부분문자열이면 "OK"가 "TOKEN"에, "NIT"가 "UNIT"에
+    # 우연히 매칭돼 라벨 강제가 흔한 차용어 하나로 무력화된다(리뷰 지적).
+    if labels and not any(
+        re.search(rf"\b{re.escape(lbl)}\b", body) for lbl in labels
+    ):
         violations.append(
             f"리뷰 종합 코멘트에 등급 라벨 없음 — {' / '.join(labels)} 중 최소 "
             f"하나로 각 항목을 매겨라."
