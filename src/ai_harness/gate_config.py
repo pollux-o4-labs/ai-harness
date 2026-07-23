@@ -4,10 +4,8 @@
 
 `check_pr_body.py`·`check_doc_form.py`·`gen_readmes.py`(core)는 이 저장소든
 다른 저장소든 로직이 같아야 한다 — 대상 저장소에 맞출 값(은어 목록·면제 섹션·
-규칙 문서 인용)은 전부 이 파일로 뽑는다. 이러면 core를 복사해 쓰는 저장소가
-늘어도 core 파일 자체는 안 갈라지고, 이 파일 하나만 그 저장소 것으로 바꾸면
-된다(도입기: `scripts/check_gate_drift.py`가 core만 바이트 비교하고 이 파일은
-비교에서 뺀다 — 다르라고 만든 파일이라 드리프트가 아니다).
+규칙 문서 인용)은 전부 이 파일로 뽑는다. 이러면 core는 설치된 패키지 하나가
+정본이고, 각 저장소는 자기 `gate_config.py`만 두면 CLI가 그 값을 얹는다.
 
 **`EXEMPT_SHAPE`는 core의 검증 함수를 직접 import해서 만든다** — 이름 문자열로
 찾는 registry가 아니다. 이름→함수 registry는 오타가 나도 "그 이름이 없다"는
