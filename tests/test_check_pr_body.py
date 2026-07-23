@@ -1260,6 +1260,182 @@ def test_merge_recognizes_global_repo_flag(monkeypatch):
     assert captured["id"] == "42"
 
 
+# --- gh pr create 제목 게이트(S5): conventional-commit -----------------------
+#
+# 제목은 create 전용 축이다 — merge는 이미 만들어진 PR을 가리킬 뿐 제목을 새로
+# 짓지 않고, comment는 애초에 제목이 없다. 제목 플래그(--title/-t)가 없는 create
+# 호출은 리젝하지 않는다(fail-open) — 이 게이트가 강제하는 건 "제목이 있다면
+# 형식이 맞아야 한다"이지 "제목이 항상 있어야 한다"가 아니다(그 부재는 이미
+# body 부재 경로가 fail-closed로 잡는다).
+
+@pytest.mark.parametrize("title", [
+    "feat: PR 제목 게이트 추가",
+    "fix(gate): 콜론 뒤 공백 검사",
+    "docs: README 갱신",
+    "chore: 의존성 정리",
+    "refactor(check_pr_body): 함수 분리",
+    "test: 회귀 테스트 추가",
+    "perf: 정규식 캐시",
+    "build: 패키징 설정",
+    "ci: 워크플로 갱신",
+    "style: 공백 정리",
+    "revert: 이전 커밋 되돌림",
+])
+def test_valid_title_passes(title):
+    """허용 타입 11종 각각이 통과해야 한다 — 목록이 실측이지 상상이 아니다."""
+    assert cpb.check_pr_title(title) == []
+
+
+def test_unknown_type_rejected():
+    violations = cpb.check_pr_title("feature: 오타난 타입")
+    assert any("타입 'feature' 미지" in v for v in violations)
+
+
+def test_title_missing_colon_rejected():
+    violations = cpb.check_pr_title("이건 콜론이 없는 제목이다")
+    assert any("형식 위반" in v for v in violations)
+
+
+def test_title_missing_space_after_colon_rejected():
+    """콜론 뒤 공백이 없으면 형식 위반 — `type:subject`는 관례를 안 따른다."""
+    assert any("형식 위반" in v for v in cpb.check_pr_title("fix:공백없음"))
+
+
+def test_title_with_scope_unknown_type_still_rejected():
+    """스코프가 붙어도 타입 검사는 그대로 적용된다."""
+    violations = cpb.check_pr_title("feature(gate): 스코프가 있어도 타입은 검사한다")
+    assert any("타입 'feature' 미지" in v for v in violations)
+
+
+def test_title_uppercase_type_reported_as_unknown():
+    """대문자 타입은 '형식 위반'이 아니라 '타입 미지'로 알려줘야 저자가 뭘
+    고칠지 안다(오타 진단성) — "Fix"는 콜론·공백 형식은 맞으므로 형식 문제가
+    아니라 타입 문제다."""
+    violations = cpb.check_pr_title("Fix: 대문자 타입")
+    assert any("타입 'Fix' 미지" in v for v in violations)
+
+
+def test_extract_title_finds_long_flag():
+    title, reason = cpb.extract_title_from_command(
+        'gh pr create --title "feat: 새 기능" --body-file f'
+    )
+    assert (title, reason) == ("feat: 새 기능", None)
+
+
+def test_extract_title_finds_short_flag():
+    title, reason = cpb.extract_title_from_command(
+        'gh pr create -t "fix: 버그" --body-file f'
+    )
+    assert (title, reason) == ("fix: 버그", None)
+
+
+def test_extract_title_finds_equals_form():
+    title, reason = cpb.extract_title_from_command(
+        "gh pr create --title=fix:버그 --body-file f"
+    )
+    assert (title, reason) == ("fix:버그", None)
+
+
+def test_extract_title_finds_short_flag_equals_form():
+    """`-t=VALUE`도 파싱한다(회귀 — 리뷰 SHOULD-FIX#1) — 이전엔 못 읽어 제목이
+    실재하는데도 fail-open으로 새는 우회구였다."""
+    title, reason = cpb.extract_title_from_command(
+        "gh pr create -t=fix:버그 --body-file f"
+    )
+    assert (title, reason) == ("fix:버그", None)
+
+
+def test_extract_title_finds_short_flag_attached_form():
+    """`-tVALUE`(공백 없는 붙임꼴)도 파싱한다(회귀 — 리뷰 SHOULD-FIX#1)."""
+    title, reason = cpb.extract_title_from_command(
+        'gh pr create -t"fix: 버그" --body-file f'
+    )
+    assert (title, reason) == ("fix: 버그", None)
+
+
+def test_extract_title_absent_is_not_rejected():
+    """제목 플래그가 없는 create 호출은 (None, None) — fail-open(설계 결정,
+    모듈 docstring 참조)."""
+    assert cpb.extract_title_from_command("gh pr create --body-file f") == (None, None)
+
+
+@pytest.mark.parametrize("cmd", [
+    "git status",
+    "gh pr merge 42 --subject t",
+    "gh pr comment 42 --body x",
+    "gh issue create --title t",
+])
+def test_extract_title_non_create_commands_not_inspected(cmd):
+    """create가 아니면 (None, None) — 훅이 통과시켜야 한다(create 아닌 호출
+    무영향)."""
+    assert cpb.extract_title_from_command(cmd) == (None, None)
+
+
+def test_hook_blocks_bad_title(monkeypatch, tmp_path, capsys):
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(
+        monkeypatch, f'gh pr create --title "오타타입: 제목" --body-file {p}'
+    ) == 2
+    assert "PR 제목 리젝" in capsys.readouterr().err
+
+
+def test_hook_allows_good_title(monkeypatch, tmp_path):
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(
+        monkeypatch, f'gh pr create --title "feat: 제목 게이트" --body-file {p}'
+    ) == 0
+
+
+def test_hook_allows_good_title_via_short_flag_attached_form(monkeypatch, tmp_path):
+    """`-tVALUE`(공백 없는 붙임꼴)로 넘긴 유효 제목도 훅 경로에서 통과해야
+    한다(리뷰 SHOULD-FIX#1)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(
+        monkeypatch, f'gh pr create -t"feat: 붙임꼴 제목" --body-file {p}'
+    ) == 0
+
+
+def test_hook_blocks_bad_title_via_short_flag_attached_form(monkeypatch, tmp_path, capsys):
+    """회귀: `-tVALUE` 붙임꼴을 못 읽으면 제목이 실재하는데도 fail-open으로
+    새던 우회구였다 — 이제 미지 타입이 잡힌다(리뷰 SHOULD-FIX#1)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(
+        monkeypatch, f'gh pr create -t"bogus: 제목" --body-file {p}'
+    ) == 2
+    assert "타입 'bogus' 미지" in capsys.readouterr().err
+
+
+def test_hook_allows_missing_title(monkeypatch, tmp_path):
+    """제목 플래그가 없어도 create 자체가 리젝되진 않는다(fail-open) — 기존
+    create 테스트 다수가 --title 없이 돈다(회귀 방지)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    assert _run_hook(monkeypatch, f"gh pr create --body-file {p}") == 0
+
+
+def test_hook_does_not_check_title_for_merge(monkeypatch):
+    """merge에는 제목 개념이 없다 — 제목 검사기가 안 불린다."""
+    _stub_fetch(monkeypatch, body=GOOD_BODY)
+    calls: list[str] = []
+    monkeypatch.setattr(cpb, "check_pr_title", lambda title: calls.append(title) or [])
+    assert _run_hook(monkeypatch, "gh pr merge 42") == 0
+    assert calls == []
+
+
+def test_hook_does_not_check_title_for_comment(monkeypatch, tmp_path):
+    """comment에도 제목 개념이 없다 — 제목 검사기가 안 불린다."""
+    p = tmp_path / "comment.md"
+    p.write_text(GOOD_COMMENT, encoding="utf-8")
+    calls: list[str] = []
+    monkeypatch.setattr(cpb, "check_pr_title", lambda title: calls.append(title) or [])
+    assert _run_hook(monkeypatch, f"gh pr comment 42 --body-file {p}") == 0
+    assert calls == []
+
+
 # --- 템플릿 ↔ 스크립트 정합 --------------------------------------------------
 #
 # 템플릿 문구와 REQUIRED_CHECKS가 한 글자라도 어긋나면 그 레포의 **모든 PR이 머지
