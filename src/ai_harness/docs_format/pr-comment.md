@@ -5,9 +5,9 @@
 예산(둘 다 상한): 40줄 · 산문 한 줄 80자·한 문장.
   코드펜스 내부는 줄 길이·문장 규칙에서 면제한다 — 명령·출력 인용은 쪼개면
   깨진다.
-  이 수치의 정본은 이 파일이고 scripts/check_pr_body.py가 파싱해 쓴다.
+  이 수치의 정본은 이 파일이고 ai-harness check-pr가 파싱해 쓴다.
   다른 곳에 옮겨 적지 말 것 — 골격을 두 군데 두면 어긋난다.
-왜 PR 본문 폼(scripts/check_pr_body.py의 SECTION_BUDGETS)과 다른가: 코멘트는
+왜 PR 본문 폼(ai-harness check-pr의 SECTION_BUDGETS)과 다른가: 코멘트는
   섹션 골격(요약/변경/범위 밖/검증)·체크리스트 대상이 아니다 — 리뷰 항목별
   근거 기록이지 PR 본문이 아니다.
 다만 내부 용어 풀이(JARGON_TERMS)는 그대로 적용한다 — 체크리스트의 은어

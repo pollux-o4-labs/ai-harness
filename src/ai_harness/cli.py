@@ -28,21 +28,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     cmd, rest = args[0], args[1:]
 
-    # 게이트 서브커맨드는 **대상 저장소의 gate_config**로 동작한다. CLI는 매 호출이
-    # 새 프로세스라, 진입점에서 대상 값을 번들 모듈에 덮어씌운 뒤 게이트를 지연
-    # import(아래 분기)하면 게이트의 `from ...gate_config import`가 그 덮인 값을
-    # 읽는다 — 게이트 코드는 안 바꾼다. 대상에 없는 값은 번들 기본을 그대로 상속.
+    # 게이트 서브커맨드는 대상 저장소의 gate_config로 동작한다 — config가 대상 값을
+    # 번들 모듈에 얹고(오버레이) 끌 게이트 목록을 돌려준다. 대상이 이 게이트를
+    # 껐으면 no-op(원칙: 기본 전부 켬, gate_config로 예외).
     if cmd in ("check-pr", "check-doc", "gen-readmes"):
-        from ai_harness import config as _config
-        import ai_harness.gate_config as _gc
-        _target = _config.load_target_config()
-        if _target is not _gc:
-            for _name in ("JARGON_TERMS", "EXEMPT_SECTIONS", "EXTRA_AUTOGEN_MARKERS",
-                          "RULE_DOC_AUTHORING", "RULE_REVIEW_EVIDENCE",
-                          "build_exempt_shape", "rule_cite"):
-                if hasattr(_target, _name):
-                    setattr(_gc, _name, getattr(_target, _name))
-        if cmd in tuple(getattr(_target, "DISABLED_GATES", ())):
+        from ai_harness.config import apply_target_config
+        if cmd in apply_target_config():
             return 0
 
     if cmd == "check-pr":
