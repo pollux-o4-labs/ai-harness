@@ -411,7 +411,7 @@ def _check_content(path: Path, text: str) -> list[str]:
             _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
             violations.append(
                 f"{path}:{i}: {len(length_measured)}자 > {line_max}자 — 흐름을 우겨넣지 "
-                f"말고 쪼개라(상한은 채울 칸이 아니다{_reason5})."
+                f"말고 간추려라(상한은 채울 칸이 아니다{_reason5})."
             )
         if kind not in _COORD_EXEMPT_TYPES:
             for coord in _COORD.findall(measured):
@@ -604,8 +604,9 @@ def main(argv: list[str] | None = None) -> int:
     _via = f"{RULE_DOC_AUTHORING} 제3조로 " if RULE_DOC_AUTHORING else ""
     print(
         f"\n먼저 {_via}기계-사실 재서술을 쳐내라([✅test]·개수·좌표를"
-        f"\n링크·이름참조로 — 이게 근본). 그다음 긴 줄은 불릿로 쪼개고, 그래도"
-        f"\n상한을 넘으면 근거를 docs/history로 내려 \"## 관련\"에서 링크하라(최후)."
+        f"\n링크·이름참조로 — 이게 근본). 그다음 남은 흐름을 함축하고, 함축 뒤에도"
+        f"\n문맥이 이어지면 문맥 단위로 줄을 나눠라(무리한 한 줄도 무의미한 쪼갬도 아니다)."
+        f"\n그래도 상한을 넘으면 근거를 docs/history로 내려 \"## 관련\"에서 링크하라(최후)."
         f"\n예산·면제의 정본: {FORM_DIR}/<유형>.md",
         file=sys.stderr,
     )
