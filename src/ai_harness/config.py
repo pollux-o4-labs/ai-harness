@@ -23,7 +23,11 @@ _OVERLAY_NAMES = (
     "RULE_DOC_AUTHORING", "RULE_REVIEW_EVIDENCE", "build_exempt_shape", "rule_cite",
 )
 # 오버레이된 값을 `from ...gate_config import`로 굳혀 소비하는 게이트 모듈.
-_CONSUMER_MODULES = ("ai_harness.check_pr_body", "ai_harness.check_doc_form")
+_CONSUMER_MODULES = (
+    "ai_harness.check_pr_body",
+    "ai_harness.check_doc_form",
+    "ai_harness.gen_pr_template",
+)
 
 
 def target_root() -> Path:

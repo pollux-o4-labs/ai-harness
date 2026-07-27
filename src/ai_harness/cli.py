@@ -14,11 +14,12 @@ _USAGE = """\
 ai-harness <command> [args...]
 
 commands:
-  check-pr       PR 본문 구조·분량 게이트
-  check-doc      문서 폼(줄 예산) 게이트
-  gen-readmes    BLUF 기반 README 자동 생성
-  install-hooks  git 훅 설치
-  install-agents 리뷰어 에이전트 템플릿 설치(.claude/agents/)
+  check-pr         PR 본문 구조·분량 게이트
+  check-doc        문서 폼(줄 예산) 게이트
+  gen-readmes      BLUF 기반 README 자동 생성
+  gen-pr-template  REQUIRED_CHECKS 등에서 PR 템플릿 생성(--check로 드리프트 감시)
+  install-hooks    git 훅 설치
+  install-agents   리뷰어 에이전트 템플릿 설치(.claude/agents/)
 """
 
 
@@ -32,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     # 게이트 서브커맨드는 대상 저장소의 gate_config로 동작한다 — config가 대상 값을
     # 번들 모듈에 얹고(오버레이) 끌 게이트 목록을 돌려준다. 대상이 이 게이트를
     # 껐으면 no-op(원칙: 기본 전부 켬, gate_config로 예외).
-    if cmd in ("check-pr", "check-doc", "gen-readmes"):
+    if cmd in ("check-pr", "check-doc", "gen-readmes", "gen-pr-template"):
         from ai_harness.config import apply_target_config
         if cmd in apply_target_config():
             return 0
@@ -49,6 +50,9 @@ def main(argv: list[str] | None = None) -> int:
         from ai_harness.gen_readmes import main as _m
         sys.argv = ["ai-harness gen-readmes", *rest]
         return _m()
+    if cmd == "gen-pr-template":
+        from ai_harness.gen_pr_template import main as _m
+        return _m(rest)
     if cmd == "install-hooks":
         from ai_harness.install_hooks import main as _m
         return _m(rest)
