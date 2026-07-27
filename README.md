@@ -37,10 +37,11 @@ uv tool install git+https://github.com/pollux-o4-labs/ai-harness.git
 ## 사용
 
 ```bash
-ai-harness check-pr       # PR 본문 구조·분량 게이트
-ai-harness check-doc      # 문서 폼(줄 예산) 게이트
-ai-harness gen-readmes    # BLUF 기반 README 자동 생성
-ai-harness install-hooks  # pre-commit 훅 설치
+ai-harness check-pr        # PR 본문 구조·분량 게이트
+ai-harness check-doc       # 문서 폼(줄 예산) 게이트
+ai-harness gen-readmes     # BLUF 기반 README 자동 생성
+ai-harness gen-pr-template # PR 템플릿 생성(REQUIRED_CHECKS 등에서 파생, --check 드리프트 감시)
+ai-harness install-hooks   # pre-commit 훅 설치
 ```
 
 ## 저장소별 설정

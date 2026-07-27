@@ -22,6 +22,7 @@ uv tool install git+https://github.com/pollux-o4-labs/ai-harness.git
 | `check-pr` | PR 본문 게이트. `--hook`은 `gh pr create`·`gh pr merge`를 거부한다. |
 | `check-doc` | 문서 폼 게이트. `--staged`는 손댄 줄만 검사한다(diff 스코프). |
 | `gen-readmes` | 폴더 README BLUF 인덱스 자동생성. `--check`는 drift만 본다. |
+| `gen-pr-template` | `.github/PULL_REQUEST_TEMPLATE.md`를 `REQUIRED_CHECKS` 등에서 생성. `--check`는 drift만 본다. |
 | `install-hooks` | `hooks/`를 `.git/hooks/`로 설치한다. |
 
 CLI가 PATH에 없으면 훅은 fail-open으로 건너뛴다(저장소 자체 잠금 방지).
@@ -42,7 +43,7 @@ core는 그대로 두고 이 파일만 저장소에 맞춘다.
 - `RULE_*` — 리젝 메시지가 인용할 규칙 조문(규칙 문서가 없으면 공란).
 
 문서 유형별 예산은 core에 번들된 `docs_format/*.md`가 정본이다.
-`.github/PULL_REQUEST_TEMPLATE.md`는 core의 섹션명과 맞아야 한다.
+`.github/PULL_REQUEST_TEMPLATE.md`는 `gen-pr-template`가 core 상수(`REQUIRED_CHECKS` 등)에서 생성한다 — 손으로 core 섹션명과 맞추지 않는다.
 
 ## 정본 방향
 
