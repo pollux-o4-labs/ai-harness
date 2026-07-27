@@ -43,7 +43,7 @@ core는 그대로 두고 이 파일만 저장소에 맞춘다.
 - `RULE_*` — 리젝 메시지가 인용할 규칙 조문(규칙 문서가 없으면 공란).
 
 문서 유형별 예산은 core에 번들된 `docs_format/*.md`가 정본이다.
-`.github/PULL_REQUEST_TEMPLATE.md`는 `gen-pr-template`가 core 상수(`REQUIRED_CHECKS` 등)에서 생성한다 — 손으로 core 섹션명과 맞추지 않는다.
+`.github/PULL_REQUEST_TEMPLATE.md`는 `gen-pr-template`가 core 상수에서 생성한다(손수정 금지).
 
 ## 정본 방향
 
