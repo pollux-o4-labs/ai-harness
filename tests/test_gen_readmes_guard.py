@@ -15,7 +15,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
     "gen_readmes", Path(__file__).resolve().parent.parent / "src" / "ai_harness" / "gen_readmes.py"

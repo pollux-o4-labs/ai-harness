@@ -254,7 +254,7 @@ def build_index_block(folder: Path, missing: list[Path]) -> str:
         lines.append("")
 
     if is_archive and archived:
-        lines.append(f"### 원문 수집본")
+        lines.append("### 원문 수집본")
         lines.append(f"- `NN-*.md` {archived}건 — 색인·fetch 결과는 `_manifest.md`, 실제 예시는 `_examples.md` 참조")
         lines.append("")
 
@@ -375,7 +375,7 @@ def main() -> int:
             print(f"\n  {p.relative_to(root).as_posix()}", file=sys.stderr)
             for line in lines:
                 print(f"      {line}", file=sys.stderr)
-        print(f"""
+        print("""
   줄이거나 형식을 고치지 마라 — **먼저 어디로 갈지 정하라.** 목적지가 그 자리의
   상한을 정하므로, 목적지 없이 축약하면 형식이 안 맞아 또 고치게 된다.
 
@@ -394,7 +394,9 @@ def main() -> int:
             readme.write_text(new_content, encoding="utf-8", newline="\n")
 
     # ── 리포트 ────────────────────────────────────────────────────────────────
-    rel = lambda p: p.relative_to(root).as_posix()
+    # 국소 concise 헬퍼(lambda 대입) — E731은 이 레포 관례대로 전역 ignore가 아니라
+    # 그 줄에서 인라인 면제한다(pyproject `[tool.ruff.lint]` 주석 참조).
+    rel = lambda p: p.relative_to(root).as_posix()  # noqa: E731
     print(f"[gen_readmes] 루트: {root}")
     print(f"  변경{'(필요)' if args.check else ''} README: {len(changed)}")
     for p in changed:

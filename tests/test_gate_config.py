@@ -5,7 +5,6 @@ DB도 LLM(언어모델)도 안 쓴다 — 순수 문자열 판정이라 어디�
 """
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
