@@ -433,3 +433,118 @@ def test_unpaired_marker_aborts_before_writing(tmp_path, monkeypatch, name, body
 
     assert rc == gen_readmes.DUPLICATE_MARKERS, f"{name}: 짝 안 맞는 마커를 통과시켰다"
     assert readme.read_text(encoding="utf-8") == body, f"{name}: 멈춘다더니 썼다"
+
+
+# --- build_index_block: 하위 폴더 섹션 렌더 (세 분기 — README 없음/TODO/정상 BLUF) ---
+#
+# 분리 전 특성화 테스트다 — 지금까지 이 갈래를 실행하는 테스트가 없었다(하위
+# 디렉터리를 만드는 테스트 자체가 없었다). build_index_block을 축별 렌더 함수로
+# 쪼개는 리팩토링이 이 출력을 바꾸지 않는지 고정한다.
+
+
+def test_index_block_subfolder_missing_readme(tmp_path):
+    """하위 폴더에 README가 없으면 '(README 없음)'로 표시한다."""
+    (tmp_path / "sub").mkdir()
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert "- `sub/` — (README 없음)" in block
+
+
+def test_index_block_subfolder_todo_bluf(tmp_path):
+    """하위 폴더 README의 BLUF가 TODO면 이탤릭으로 표시한다(폴더 목적 미작성 신호)."""
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "README.md").write_text(
+        f"> **BLUF:** {gen_readmes.TODO_PREFIX} — 목적을 채우세요.\n", encoding="utf-8"
+    )
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert "- `sub/` — _TODO — 목적을 채우세요._" in block
+
+
+def test_index_block_subfolder_normal_bluf(tmp_path):
+    """하위 폴더 README에 정상 BLUF가 있으면 그 문구를 그대로 표시한다."""
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    (sub / "README.md").write_text("> **BLUF:** 서브 폴더 설명.\n", encoding="utf-8")
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert "- `sub/` — 서브 폴더 설명." in block
+
+
+# --- build_index_block: 아카이브 집약(`_manifest.md` 보유 폴더) -----------------
+#
+# 분리 전 특성화 테스트 — `_manifest.md`가 있는 폴더에서 번호매김 문서를 스킵하고
+# 개수로 접는 처리를 지금까지 어떤 테스트도 덮지 않았다.
+
+
+def test_index_block_archive_collapses_numbered_docs(tmp_path):
+    """`_manifest.md`가 있는 폴더는 번호매김 문서(`NN-*.md`)를 개별 나열 대신
+    개수로 접고, BLUF 누락으로도 잡지 않는다(색인은 _manifest.md가 대신한다)."""
+    (tmp_path / "_manifest.md").write_text("색인 파일 — BLUF 없어도 무방.\n", encoding="utf-8")
+    (tmp_path / "01-alpha.md").write_text("본문.\n", encoding="utf-8")
+    (tmp_path / "02-beta.md").write_text("본문.\n", encoding="utf-8")
+
+    missing: list = []
+    block = gen_readmes.build_index_block(tmp_path, missing)
+
+    assert "### 원문 수집본" in block
+    assert "`NN-*.md` 2건" in block
+    assert "01-alpha.md" not in block
+    assert "02-beta.md" not in block
+    assert missing == [], "아카이브 원문을 BLUF 누락으로 잘못 잡았다"
+
+
+def test_index_block_non_archive_does_not_collapse_numbered_docs(tmp_path):
+    """`_manifest.md`가 없으면 번호매김이어도 일반 문서로 개별 나열한다."""
+    (tmp_path / "01-alpha.md").write_text("> **BLUF:** 알파.\n", encoding="utf-8")
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert "01-alpha.md` — 알파." in block
+    assert "원문 수집본" not in block
+
+
+# --- build_index_block: 자산 집약 경계값(_ASSET_COLLAPSE_MIN) -------------------
+#
+# 경계(미만/같음/초과)는 리팩토링에서 가장 잘 어긋나는 자리라 세 지점 모두 고정한다.
+
+
+def test_index_block_assets_below_collapse_threshold_lists_individually(tmp_path):
+    """자산 개수가 임계 미만이면 개별 파일명을 나열한다(집약 금지 경계)."""
+    n = gen_readmes._ASSET_COLLAPSE_MIN - 1
+    for i in range(n):
+        (tmp_path / f"img{i}.png").write_bytes(b"x")
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert block.count("- `img") == n
+    assert "*.png" not in block
+
+
+def test_index_block_assets_at_collapse_threshold_collapses(tmp_path):
+    """자산 개수가 임계와 같으면 집약한다(경계 포함 — `>=` 조건 고정)."""
+    n = gen_readmes._ASSET_COLLAPSE_MIN
+    for i in range(n):
+        (tmp_path / f"img{i}.png").write_bytes(b"x")
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert f"- `*.png` {n}개" in block
+    assert "img0.png" not in block
+
+
+def test_index_block_assets_above_collapse_threshold_collapses(tmp_path):
+    """자산 개수가 임계를 넘어도 계속 집약하며, 확장자당 한 줄만 남긴다."""
+    n = gen_readmes._ASSET_COLLAPSE_MIN + 1
+    for i in range(n):
+        (tmp_path / f"img{i}.png").write_bytes(b"x")
+    block = gen_readmes.build_index_block(tmp_path, [])
+    assert f"- `*.png` {n}개" in block
+    assert block.count("*.png") == 1
+
+
+def test_index_block_missing_bluf_reported(tmp_path):
+    """BLUF 없는 일반 문서가 `missing`에 실린다 — 이번 분리의 유일한 내부 계약
+    변경(누락 목록을 반환형으로 바꾼 뒤 호출부가 합치는 이음매) 지점이라 그물을 둔다.
+
+    이 배선이 끊기면 BLUF 누락이 조용히 안 보고되고, 그 상태로 --check가
+    통과해 누락이 영구히 묻힌다."""
+    (tmp_path / "ok.md").write_text("> **BLUF:** 요약 있음.\n", encoding="utf-8")
+    (tmp_path / "no_bluf.md").write_text("요약이 없다.\n", encoding="utf-8")
+
+    missing: list[Path] = []
+    gen_readmes.build_index_block(tmp_path, missing)
+
+    assert [p.name for p in missing] == ["no_bluf.md"]
