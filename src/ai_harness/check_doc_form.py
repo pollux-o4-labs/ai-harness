@@ -337,7 +337,7 @@ def _check_content(path: Path, text: str) -> list[str]:
             f"{path}: {authored}줄 > {lines_max}줄 — 문서가 비대하다"
             f"{_rule_cite(RULE_DOC_AUTHORING, '비대 상한')}. 먼저 {_via}"
             f"기계-사실 재서술을 쳐내라([✅test]·개수·좌표를 링크·이름참조로). "
-            f"그래도 넘으면 쪼개거나 docs/history로 내려라."
+            f"그다음 함축하고, 그래도 넘으면 docs/history로 내려라."
         )
 
     in_fence = False
@@ -411,7 +411,7 @@ def _check_content(path: Path, text: str) -> list[str]:
             _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
             violations.append(
                 f"{path}:{i}: {len(length_measured)}자 > {line_max}자 — 흐름을 우겨넣지 "
-                f"말고 간추려라(상한은 채울 칸이 아니다{_reason5})."
+                f"말고 함축해라(상한은 채울 칸이 아니다{_reason5})."
             )
         if kind not in _COORD_EXEMPT_TYPES:
             for coord in _COORD.findall(measured):
