@@ -12,15 +12,15 @@
 런타임 조회 실패로만 드러나 늦게 터진다. 직접 import는 오타가 나면 그 즉시
 `ImportError`로 죽는다(fail-loud) — registry가 아니라 하나 아낀 안전장치다.
 
-**그 import는 이 파일 맨 위가 아니라 `build_exempt_shape()` 안에 있다**(지연
-임포트) — check_pr_body.py가 이 파일을 임포트하고, 이 파일은 check_pr_body.py를
-임포트하는 순환이라 맨 위에 두면 어느 쪽이 먼저 로드되느냐에 따라 임포트가
-깨진다. check_doc_form.py처럼 이 파일의 `RULE_*` 값만 쓰고 `build_exempt_shape`는
-안 부르는 코드는 이 함수를 부르기 전까진 check_pr_body.py를 끌어들이지 않는다.
+**그 검증 함수(`is_checkbox_line`·`is_issue_ref_line`)는 `line_shapes.py`(의존성
+0)에서 온다** — 이 파일과 check_pr_body.py 둘 다 그 모듈을 최상단에서 평범하게
+import한다. line_shapes.py는 어느 쪽도 끌어들이지 않으므로 순환이 없다.
 """
 from __future__ import annotations
 
 from typing import Callable
+
+from ai_harness.line_shapes import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
 
 # 이 저장소에서 끌 게이트 서브커맨드 이름(예: "gen-readmes"). **기본은 전부 켬**
 # — 비어 있으면 설치된 게이트가 모두 돈다(BLUF·문서폼·PR본문). 특정 게이트가
@@ -70,17 +70,7 @@ EXEMPT_SECTIONS: tuple[str, ...] = ("변경 유형", "관련 이슈")
 # 좋은 은신처였다. 이 불변식은 코드로 고정한다 —
 # tests/test_check_pr_body.py::test_every_non_budget_section_has_a_shape.
 def build_exempt_shape() -> dict[str, tuple[Callable[[str], bool], str]]:
-    """EXEMPT_SECTIONS 각 섹션의 허용 형태를 만들어 반환한다.
-
-    check_pr_body.py를 여기(함수 안)에서 임포트한다 — 모듈 맨 위에서 임포트하면
-    순환(check_pr_body.py → gate_config.py → check_pr_body.py)이 어느 쪽이
-    먼저 로드되느냐에 따라 깨진다. check_pr_body.py는 자기 검증 함수
-    (`is_checkbox_line`·`is_issue_ref_line`)를 정의한 **뒤** 이 함수를 불러
-    EXEMPT_SHAPE를 채운다 — 그 시점엔 이 두 이름이 이미 있으므로 이 지연
-    임포트가 항상 성립한다.
-    """
-    from ai_harness.check_pr_body import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
-
+    """EXEMPT_SECTIONS 각 섹션의 허용 형태를 만들어 반환한다."""
     return {
         "변경 유형": (
             is_checkbox_line,
