@@ -32,6 +32,7 @@ import re
 import subprocess
 import sys
 from collections import Counter
+from functools import lru_cache
 from pathlib import Path
 
 from ai_harness.config import target_root
@@ -148,11 +149,16 @@ def is_excluded_dir(d: Path) -> bool:
     return False
 
 
+@lru_cache(maxsize=None)
 def is_git_ignored(path: Path) -> bool:
     """Return whether Git excludes a local-only artifact from repository indexes.
 
     cwd는 대상 경로의 부모(그 파일이 속한 git repo) — REPO_ROOT로 고정하면 대상이
-    중첩된 다른 저장소(예: 미러 클론)에 있을 때 REPO_ROOT 저장소의 .gitignore로 오판한다."""
+    중첩된 다른 저장소(예: 미러 클론)에 있을 때 REPO_ROOT 저장소의 .gitignore로 오판한다.
+
+    결과를 캐싱한다 — 같은 폴더가 순회 판정 1회 + 상위 폴더의 하위목록 렌더 1회로
+    두 번 불린다. 이 CLI는 1회성 프로세스라 실행 중 .gitignore가 바뀔 수 없으므로
+    무효화할 근거가 없다(캐싱이 안전한 이유)."""
     parent = path.parent if path.parent.exists() else REPO_ROOT
     result = subprocess.run(
         ["git", "check-ignore", "-q", "--", str(path)],
@@ -327,13 +333,13 @@ def compose_readme(folder: Path, index_block: str) -> str:
     return header + "\n\n" + index_block.rstrip() + "\n"
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="BLUF 기반 README 자동 생성기")
     ap.add_argument("--check", action="store_true",
                     help="드라이런: 변경 필요/누락 BLUF가 있으면 비영 종료(파일 미수정)")
     ap.add_argument("--root", default=None,
                     help="저장소 루트 경로(기본: 대상 저장소 git 루트)")
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
 
     # 기본 루트 = 대상 저장소 git 루트. 설치형 CLI로 남의 repo에서 돌 때 번들
     # 패키지 위치(REPO_ROOT=src/)가 아니라 그 저장소를 대상으로 삼아야 한다 —

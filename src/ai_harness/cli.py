@@ -46,11 +46,8 @@ def main(argv: list[str] | None = None) -> int:
         from ai_harness.check_doc_form import main as _m
         return _m(rest)
     if cmd == "gen-readmes":
-        # gen_readmes.main()은 argv를 안 받고 sys.argv를 파싱한다 — 서브커맨드를
-        # 벗겨 넘긴다(디스패처가 argv를 정규화).
         from ai_harness.gen_readmes import main as _m
-        sys.argv = ["ai-harness gen-readmes", *rest]
-        return _m()
+        return _m(rest)
     if cmd == "gen-pr-template":
         from ai_harness.gen_pr_template import main as _m
         return _m(rest)

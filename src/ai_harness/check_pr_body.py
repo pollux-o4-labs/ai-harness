@@ -92,8 +92,9 @@ _EXEMPT_SHAPE = build_exempt_shape()
 
 
 # 문장 종결 마침표 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
-# 스크립트는 stdlib only(훅에서 별도 설치 없이 돈다)라 import로 합칠 수 없어
-# 정규식을 복제한다. 앞이 숫자·마침표면 배제(소수·번호·말줄임), 뒤가 공백
+# 게이트 파일이 서로 직접 걸치지 않게 하는 격리 설계라 이 둘끼리는 안 합치고
+# 정규식을 복제한다(제3의 공용 모듈로 뽑는 것은 별개 논의, 지금 범위 아님).
+# 앞이 숫자·마침표면 배제(소수·번호·말줄임), 뒤가 공백
 # 아니면 배제(코드·경로), 뒤에 다음 문장(비공백)이 이어질 때만 걸린다.
 _SENTENCE_END = re.compile(r"(?<![0-9.])\. (?=\S)")
 REQUIRED_CHECKS: tuple[str, ...] = (
@@ -114,9 +115,9 @@ REQUIRED_CHECKS: tuple[str, ...] = (
 )
 
 # `gh pr comment` 예산의 정본 — 이 dict는 이 파일에 없다. check_doc_form의
-# _BUDGET_PATS와 같은 문구 관례를 파싱하지만, 두 스크립트는 stdlib only 제약
-# (훅에서 별도 설치 없이 돈다)이라 import로 못 합쳐 정규식을 복제한다(위
-# _SENTENCE_END와 같은 이유). 폼 파일이 없으면 코멘트 게이트·리뷰 근거 검사가
+# _BUDGET_PATS와 같은 문구 관례를 파싱하지만, 두 게이트 파일을 서로 걸치지
+# 않게 하는 격리 설계라(위 _SENTENCE_END와 같은 이유) 정규식을 복제한다.
+# 폼 파일이 없으면 코멘트 게이트·리뷰 근거 검사가
 # fail-closed로 리젝한다(우회가 아니라 "아직 안 채운 설정"임을 알리는 것) —
 # 저장소가 이 경로에 폼 파일을 작성하면 그때부터 켜진다.
 _COMMENT_FORM_PATH = (
@@ -145,7 +146,7 @@ _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
 _GLOSS_AFTER = re.compile(r"^\s*[(（]")
 # 코멘트 줄 검사용 펜스 토글 — check_doc_form.py의 _FENCE와 같은 정규식이지만
-# 위와 같은 이유(stdlib only)로 복제한다.
+# 위와 같은 이유(격리 설계)로 복제한다.
 _FENCE_LINE = re.compile(r"^\s*```")
 _CHECKED_ITEM = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+?)\s*$")
 
@@ -696,8 +697,10 @@ def _body_from_match(argv: list[str], span: tuple[int, int], subcommand: str) ->
     return body, reason
 
 
-def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr create ...`에서 본문을 뽑는다.
+def _extract_body_for_subcommand(command: str, subcommand: str) -> tuple[str | None, str | None]:
+    """`gh pr <subcommand> ...`에서 본문을 뽑는다 — create·comment가 공유하는
+    본체(대상 서브커맨드 문자열만 다르다). 공개 함수 이름·시그니처는 각자
+    그대로 두고(테스트가 이름을 직접 부른다) 이 헬퍼를 얇게 감싼다.
 
     반환: (body, reason_if_uninspectable). gh 호출이 아니면 (None, None) —
     호출자가 '검사 대상 아님'으로 통과시킨다.
@@ -707,11 +710,20 @@ def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
     except ValueError as e:  # 따옴표 안 닫힘 등 — 셸이 알아서 죽는다
         return None, f"명령 파싱 실패({e})"
 
-    span = _find_gh_pr_span(argv, "create")
+    span = _find_gh_pr_span(argv, subcommand)
     if span is None:
         return None, None
 
-    return _body_from_match(argv, span, "create")
+    return _body_from_match(argv, span, subcommand)
+
+
+def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
+    """`gh pr create ...`에서 본문을 뽑는다.
+
+    반환: (body, reason_if_uninspectable). gh 호출이 아니면 (None, None) —
+    호출자가 '검사 대상 아님'으로 통과시킨다.
+    """
+    return _extract_body_for_subcommand(command, "create")
 
 
 def extract_body_from_comment_command(command: str) -> tuple[str | None, str | None]:
@@ -721,16 +733,7 @@ def extract_body_from_comment_command(command: str) -> tuple[str | None, str | N
     반환: (body, reason_if_uninspectable). gh pr comment 호출이 아니면
     (None, None) — 호출자가 '검사 대상 아님'으로 통과시킨다.
     """
-    try:
-        argv = shlex.split(command)
-    except ValueError as e:
-        return None, f"명령 파싱 실패({e})"
-
-    span = _find_gh_pr_span(argv, "comment")
-    if span is None:
-        return None, None
-
-    return _body_from_match(argv, span, "comment")
+    return _extract_body_for_subcommand(command, "comment")
 
 
 # --- gh pr create 제목 게이트(S5): conventional-commit -----------------------
