@@ -63,6 +63,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 레포별 설정(은어 목록·면제 섹션·규칙 인용) — 대상 저장소가 값을 오버레이한다.
+from ai_harness.gate_config import (
+    EXEMPT_SECTIONS,
+    JARGON_TERMS,
+    RULE_REVIEW_EVIDENCE,
+    build_exempt_shape,
+    rule_cite as _rule_cite,
+)
+# 체크리스트 섹션명은 이 파일 로직이 직접 쓰고, 테스트도 `cpb.CHECKLIST_SECTION`
+# 으로 읽는다. 줄 형태 판정 두 함수는 여기서 재노출하지 않는다 — 쓰는 쪽이
+# gate_config 하나뿐이라 그쪽이 line_shapes에서 바로 가져가면 된다.
+from ai_harness.line_shapes import CHECKLIST_SECTION
+
 # 이 dict가 PR 본문 예산의 정본이다 — 문서·템플릿은 이 값을 재서술하지 말고
 # 이 파일을 가리킬 것. 위반 메시지가 실측값과 함께 예산을 알려주므로 저자는
 # 여기를 안 읽어도 된다.
@@ -73,83 +86,15 @@ SECTION_BUDGETS: dict[str, int] = {
     "검증": 150,
 }
 
-# 기계가 판정 못 하는 항목의 자기신고 섹션. 예산 대상이 아니다(문구가 고정이라
-# 저자가 줄일 수 없다). **이 섹션은 강제가 아니라 자기보고다** — 자기보고
-# 불신이 겨냥하는 바로 그 형태이므로, 여기 체크가 곧 사실이라고 읽어서는 안 된다.
-CHECKLIST_SECTION = "확인"
-
-# 체크박스 줄. 들여쓴 하위 항목도 받는다(중첩이 곧 위반이 되면 안 된다).
-_CHECKBOX_LINE = re.compile(r"^\s*-\s*\[[ xX]\]\s+\S")
-
-# 이슈 참조 토큰 — `#12`, `owner/repo#12`, 그리고 GitHub이 링크하는 전체 URL.
-# `repo#12`(레포명만)는 일부러 뺐다: GitHub이 자동 링크하지 않아 독자가 못 따라간다.
-_REF_TOKEN = re.compile(
-    r"https?://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(?:issues|pull)/\d+"
-    r"|(?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#\d+"
-)
-# 종료 키워드. GitHub이 인식하는 것만.
-#
-# **긴 대안을 먼저** 둔다. 정규식 대안은 왼쪽부터 먹으므로 `Clos(?:e|es|ed)`로 쓰면
-# "Closes"에서 "Close"만 먹고 "s"를 남긴다 — 매칭 위치가 고정된 `.sub()`는 앵커
-# 있는 매칭과 달리 되짚지 않는다. 남은 "s"가 산문으로 오인돼 정상 참조가 리젝됐다.
-_REF_KEYWORD = re.compile(
-    r"Closed|Closes|Close|Fixed|Fixes|Fix|Resolved|Resolves|Resolve|Refs|Ref|and",
-    re.IGNORECASE,
-)
-
 _NONE_LINE = re.compile(r"^\s*(?:없음|N/?A)\s*$", re.IGNORECASE)
-
-
-def is_issue_ref_line(line: str) -> bool:
-    """줄 전체가 이슈 참조로만 이뤄졌는지 — 참조 여러 개도 받는다.
-
-    `Closes #1, #2`·`Closes #1, closes #2`·이슈 URL은 GitHub이 정상 링크하는 표준
-    표기라 받아야 한다(정규식으로 "한 줄에 하나"를 강요하면 게이트가 아니라 족쇄가
-    된다 — 리뷰 지적). 참조 토큰·키워드·구분자를 걷어내고 **남는 게 있으면**
-    그건 산문이므로 리젝한다.
-
-    `gate_config.py`가 `EXEMPT_SHAPE`를 구성할 때 이 이름을 직접 import한다 —
-    공개 함수(밑줄 없음)로 둔 이유가 그것이다.
-    """
-    if not _REF_TOKEN.search(line):
-        return False
-    rest = _REF_KEYWORD.sub("", _REF_TOKEN.sub("", line))
-    return re.sub(r"[\s,;\-·]+", "", rest) == ""
-
-
-def is_checkbox_line(line: str) -> bool:
-    """줄이 체크박스 형식(`- [ ] ...`/`- [x] ...`)인지 — 면제 섹션 형태 검증에 쓴다.
-
-    `is_issue_ref_line`과 같은 이유로 공개 함수다 — `gate_config.py`가 이
-    이름을 직접 import해 `EXEMPT_SHAPE`를 만든다.
-    """
-    return bool(_CHECKBOX_LINE.match(line))
-
-
-# --- 레포별 설정(gate_config.py) --------------------------------------------
-#
-# `build_exempt_shape()` 호출은 반드시 위 두 함수·CHECKLIST_SECTION이 정의된
-# **뒤**에 와야 한다 — 그 함수가 이 파일을 거꾸로 import해(`from check_pr_body
-# import is_checkbox_line, ...`) EXEMPT_SHAPE를 만드는데, 그 시점에 이 두
-# 이름이 이미 이 모듈에 있어야 순환 임포트가 성립한다(파이썬은 부분 초기화된
-# 모듈이라도 이미 실행된 만큼의 이름은 내준다). gate_config.py가 그 import를
-# 모듈 맨 위가 아니라 함수 안에 지연시켜 두므로, 이 파일이 gate_config.py보다
-# 나중에 로드되는 순서(아래)뿐 아니라 먼저 로드되는 순서(gate_config.py를
-# 다른 스크립트가 먼저 불렀을 때)도 안전하다.
-from ai_harness.gate_config import (  # noqa: E402
-    EXEMPT_SECTIONS,
-    JARGON_TERMS,
-    RULE_REVIEW_EVIDENCE,
-    build_exempt_shape,
-    rule_cite as _rule_cite,
-)
 
 _EXEMPT_SHAPE = build_exempt_shape()
 
 
 # 문장 종결 마침표 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
-# 스크립트는 stdlib only(훅에서 별도 설치 없이 돈다)라 import로 합칠 수 없어
-# 정규식을 복제한다. 앞이 숫자·마침표면 배제(소수·번호·말줄임), 뒤가 공백
+# 게이트 파일이 서로 직접 걸치지 않게 하는 격리 설계라 이 둘끼리는 안 합치고
+# 정규식을 복제한다(제3의 공용 모듈로 뽑는 것은 별개 논의, 지금 범위 아님).
+# 앞이 숫자·마침표면 배제(소수·번호·말줄임), 뒤가 공백
 # 아니면 배제(코드·경로), 뒤에 다음 문장(비공백)이 이어질 때만 걸린다.
 _SENTENCE_END = re.compile(r"(?<![0-9.])\. (?=\S)")
 REQUIRED_CHECKS: tuple[str, ...] = (
@@ -170,9 +115,9 @@ REQUIRED_CHECKS: tuple[str, ...] = (
 )
 
 # `gh pr comment` 예산의 정본 — 이 dict는 이 파일에 없다. check_doc_form의
-# _BUDGET_PATS와 같은 문구 관례를 파싱하지만, 두 스크립트는 stdlib only 제약
-# (훅에서 별도 설치 없이 돈다)이라 import로 못 합쳐 정규식을 복제한다(위
-# _SENTENCE_END와 같은 이유). 폼 파일이 없으면 코멘트 게이트·리뷰 근거 검사가
+# _BUDGET_PATS와 같은 문구 관례를 파싱하지만, 두 게이트 파일을 서로 걸치지
+# 않게 하는 격리 설계라(위 _SENTENCE_END와 같은 이유) 정규식을 복제한다.
+# 폼 파일이 없으면 코멘트 게이트·리뷰 근거 검사가
 # fail-closed로 리젝한다(우회가 아니라 "아직 안 채운 설정"임을 알리는 것) —
 # 저장소가 이 경로에 폼 파일을 작성하면 그때부터 켜진다.
 _COMMENT_FORM_PATH = (
@@ -201,7 +146,7 @@ _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
 _GLOSS_AFTER = re.compile(r"^\s*[(（]")
 # 코멘트 줄 검사용 펜스 토글 — check_doc_form.py의 _FENCE와 같은 정규식이지만
-# 위와 같은 이유(stdlib only)로 복제한다.
+# 위와 같은 이유(격리 설계)로 복제한다.
 _FENCE_LINE = re.compile(r"^\s*```")
 _CHECKED_ITEM = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+?)\s*$")
 
@@ -574,15 +519,24 @@ def _review_skeleton_template(prefix: str, sections: list[str], labels: list[str
     )
 
 
+def _print_violations(header: str, violations: list[str]) -> None:
+    """헤더 한 줄 + 위반 목록(`  - {v}`)을 stderr로 찍는 공통 관용구.
+
+    `_report`·`_report_comment`·`_report_title` 셋이 이 겉틀을 각자 되풀이하고
+    있었다 — 헤더 문구·뒤따르는 힌트(있는 경우)만 호출부가 조립한다. 출력
+    문자열 자체는 한 글자도 바뀌지 않는다(테스트가 메시지를 문자열로 검사).
+    """
+    print(header, file=sys.stderr)
+    for v in violations:
+        print(f"  - {v}", file=sys.stderr)
+
+
 def _report_comment(violations: list[str], body: str) -> None:
     """코멘트 위반을 stderr로 보고. PR 본문 `_report`와 달리 섹션 총계가 없다
     — 코멘트는 섹션이 없는 자유 형식이다."""
-    print(
-        f"[check_pr_body] PR 코멘트 리젝 — 위반 {len(violations)}건:",
-        file=sys.stderr,
+    _print_violations(
+        f"[check_pr_body] PR 코멘트 리젝 — 위반 {len(violations)}건:", violations
     )
-    for v in violations:
-        print(f"  - {v}", file=sys.stderr)
     print(
         "\n형식: docs_format/pr-comment.md",
         file=sys.stderr,
@@ -595,13 +549,11 @@ def _report(violations: list[str], body: str) -> None:
     # 없으므로 총량에 섞으면 저자가 못 건드리는 몫만큼 예산을 뺏는다.
     sections = parse_sections(body)
     total = sum(measure(sections.get(name, "")) for name in SECTION_BUDGETS)
-    print(
+    _print_violations(
         f"[check_pr_body] PR 본문 리젝 — 위반 {len(violations)}건 "
         f"(총 {total}자 / 예산 {sum(SECTION_BUDGETS.values())}자):",
-        file=sys.stderr,
+        violations,
     )
-    for v in violations:
-        print(f"  - {v}", file=sys.stderr)
     print(
         # 처방은 실재하는 것만 가리킨다 — 없는 문서로 보내면 저자는 고칠 길을 잃고
         # 게이트를 지운다. 섹션·예산의 정본은 이 스크립트이므로 템플릿만 가리킨다.
@@ -752,8 +704,10 @@ def _body_from_match(argv: list[str], span: tuple[int, int], subcommand: str) ->
     return body, reason
 
 
-def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr create ...`에서 본문을 뽑는다.
+def _extract_body_for_subcommand(command: str, subcommand: str) -> tuple[str | None, str | None]:
+    """`gh pr <subcommand> ...`에서 본문을 뽑는다 — create·comment가 공유하는
+    본체(대상 서브커맨드 문자열만 다르다). 공개 함수 이름·시그니처는 각자
+    그대로 두고(테스트가 이름을 직접 부른다) 이 헬퍼를 얇게 감싼다.
 
     반환: (body, reason_if_uninspectable). gh 호출이 아니면 (None, None) —
     호출자가 '검사 대상 아님'으로 통과시킨다.
@@ -763,11 +717,20 @@ def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
     except ValueError as e:  # 따옴표 안 닫힘 등 — 셸이 알아서 죽는다
         return None, f"명령 파싱 실패({e})"
 
-    span = _find_gh_pr_span(argv, "create")
+    span = _find_gh_pr_span(argv, subcommand)
     if span is None:
         return None, None
 
-    return _body_from_match(argv, span, "create")
+    return _body_from_match(argv, span, subcommand)
+
+
+def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
+    """`gh pr create ...`에서 본문을 뽑는다.
+
+    반환: (body, reason_if_uninspectable). gh 호출이 아니면 (None, None) —
+    호출자가 '검사 대상 아님'으로 통과시킨다.
+    """
+    return _extract_body_for_subcommand(command, "create")
 
 
 def extract_body_from_comment_command(command: str) -> tuple[str | None, str | None]:
@@ -777,16 +740,7 @@ def extract_body_from_comment_command(command: str) -> tuple[str | None, str | N
     반환: (body, reason_if_uninspectable). gh pr comment 호출이 아니면
     (None, None) — 호출자가 '검사 대상 아님'으로 통과시킨다.
     """
-    try:
-        argv = shlex.split(command)
-    except ValueError as e:
-        return None, f"명령 파싱 실패({e})"
-
-    span = _find_gh_pr_span(argv, "comment")
-    if span is None:
-        return None, None
-
-    return _body_from_match(argv, span, "comment")
+    return _extract_body_for_subcommand(command, "comment")
 
 
 # --- gh pr create 제목 게이트(S5): conventional-commit -----------------------
@@ -883,12 +837,9 @@ def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
 def _report_title(violations: list[str], title: str) -> None:
     """PR 제목 위반을 stderr로 보고. `_report_comment`와 같은 골격(섹션 총계가
     없다 — 제목은 섹션이 없는 한 줄이다)."""
-    print(
-        f"[check_pr_body] PR 제목 리젝 — 위반 {len(violations)}건:",
-        file=sys.stderr,
+    _print_violations(
+        f"[check_pr_body] PR 제목 리젝 — 위반 {len(violations)}건:", violations
     )
-    for v in violations:
-        print(f"  - {v}", file=sys.stderr)
 
 
 # --- gh pr merge 게이트 ------------------------------------------------------

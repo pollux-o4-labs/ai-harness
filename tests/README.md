@@ -4,12 +4,14 @@
 ### 문서
 - `test_check_doc_form.py` — check_doc_form의 폼-정본성·줄/BLUF 예산·표행/코드펜스 면제·화이트리스트·유형판정 fallback·pre-commit 배선 자기잠금방지를 무DB·무LLM으로 검증.
 - `test_check_pr_body.py` — check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·은어 풀이·gh 명령 본문추출·훅 exit코드·코멘트 게이트·머지 준비 dry-run을 검증.
+- `test_cli.py` — 디스패처가 선언 테이블의 모든 서브커맨드를 실제로 부를 수 있는지 검증 — 모듈 경로가 문자열이라 정적 검사가 오타를 못 잡는다.
 - `test_config.py` — 대상 저장소 gate_config 로드·값 오버레이·프로세스당-1회 가드·우아한 실패를 검증(config.py).
 - `test_gate_config.py` — gate_config.rule_cite의 공란/값-존재 토글 계약을 검증.
 - `test_gen_pr_template.py` — gen_pr_template의 REQUIRED_CHECKS 렌더·계층 재현·--check 드리프트 감시·check_pr_body 교차검증을 검증.
 - `test_gen_readmes_guard.py` — gen_readmes의 자동생성 블록 파괴 방지와 gitignore 폴더 제외를 검증하는 회귀.
 - `test_install_agents.py` — install-agents가 동봉 리뷰어 템플릿을 대상 .claude/agents/(또는 --user면 ~/.claude/agents/)로 복사하고 기존 커스터마이즈는 보존하는지 검증(install_agents.py).
 - `test_install_hooks.py` — install-hooks가 대상 저장소(git 루트)의 .git/hooks로 동봉 훅을 멱등 설치하는지 검증(install_hooks.py).
+- `test_install_rules.py` — install-rules가 동봉 공용 조문을 대상 .claude/rules/(또는 --user면 ~/.claude/rules/)로 복사하고, 정본이라 기존 사본을 덮는지 검증(install_rules.py).
 - `test_ruff_clean.py` — ruff check가 위반 0인지 pytest로 고정 — [tool.ruff] 설정이 죽은 값이 아니라 실제 게이트가 되게(CI/훅 신설 없이 pytest 한 방에 흡수).
 
 <!-- BLUF-INDEX:END -->

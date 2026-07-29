@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
@@ -57,6 +58,13 @@ _AGENT_CONFIG_NAMES = frozenset({"AGENTS.md", "CLAUDE.md"})
 # (load_budgets가 `docs_format/<유형>.md`를 찾는다).
 _AGENT_DEF_DIR: tuple[str, str] = (".claude", "agents")
 _AGENT_DEF_TYPE = "agent-def"
+
+# 패키지에 동봉된 공용 규칙 조문. 휠에 담기려면 `src/` 아래여야 해서 위 docs/
+# 갈래에 안 걸린다 — 전역 폴백이 마침 rules라 지금은 맞게 떨어지지만, 우연에
+# 기대면 `_GLOBAL_FORM`이 바뀌는 순간 이 파일만 조용히 다른 예산을 받는다
+# (agent-def가 겪은 그것). 이 경로는 이 패키지 자기 저장소에만 있다.
+_BUNDLED_RULES_DIR: tuple[str, str, str] = ("src", "ai_harness", "rules")
+_BUNDLED_RULES_TYPE = "rules"
 
 # 예산 면제 문서. **비어 있는 게 기본이다** — 길어야 정상인 문서(레퍼런스·
 # 기록 등)가 관측되면 그때 경로를 여기 추가한다. 미리 채워두지 않는다.
@@ -254,6 +262,8 @@ def doc_type(path: Path) -> str | None:
     # 실제 호출 경로가 생기면 그때 스캔으로 넓혀라 — 지금 넓히면 근거 없는 분기다.
     if len(parts) >= 3 and parts[:2] == _AGENT_DEF_DIR:
         return _AGENT_DEF_TYPE
+    if len(parts) >= 4 and parts[:3] == _BUNDLED_RULES_DIR:
+        return _BUNDLED_RULES_TYPE
     # 에이전트 설정 파일은 경로가 아니라 이름이 유형이다 — 루트에도 하위 저장소에도
     # 같은 이름으로 산다.
     if path.name in _AGENT_CONFIG_NAMES:
@@ -290,6 +300,59 @@ def check_file(path: Path) -> list[str]:
     if path.as_posix() in WHITELIST:
         return []
     return _check_content(path, path.read_text(encoding="utf-8"))
+
+
+def _iter_checkable_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
+    """규칙을 적용해도 되는 줄만 (1-based 줄번호, 콘텐츠)로 낸다.
+
+    frontmatter·자동생성 블록·HTML 주석·코드펜스·표 행 판정은 전부 상태 있고
+    순서에 의존한다(연 자리를 기억해야 닫힌 자리를 안다). 소비자(`_check_content`)가
+    적용하는 규칙(BLUF·문장·길이·좌표)은 반대로 줄마다 독립이다 — 성질이 다른 둘을
+    한 루프에 두면 어느 쪽을 고치든 다른 쪽까지 읽어야 해서 갈랐다.
+
+    형태는 `_staged_hunk_lines`와 같지만 동기는 다르다 — 그쪽은 소비자가 둘이라
+    재사용이 목적이고, 여기는 소비자가 하나라 관심사 분리가 목적이다.
+    """
+    in_fence = False
+    in_autogen = False
+    in_comment = False
+    # YAML frontmatter는 저자가 형식을 못 고르는 영역이라 면제한다 — 스칼라 값에
+    # 줄바꿈을 넣을 수 없으므로 "한 줄 한 문장"·길이 상한을 물리적으로 지킬 수
+    # 없다(에이전트 정의 .claude/agents/*.md의 description·tools가 그 자리다).
+    # **여는 자리는 파일 첫 줄로 못 박는다** — 본문 어디서나 열게 두면 수평선
+    # `---` 하나가 나머지 문서 전체의 게이트를 끈다(자동생성 마커 부분일치로
+    # 위반이 숨었던 실사고와 같은 부류).
+    in_frontmatter = bool(lines) and lines[0].strip() == "---"
+    for i, line in enumerate(lines, 1):
+        if in_frontmatter:
+            if i > 1 and line.strip() == "---":
+                in_frontmatter = False
+            continue
+        if _AUTOGEN_START.search(line):
+            in_autogen = True
+            continue
+        if _AUTOGEN_END.search(line):
+            in_autogen = False
+            continue
+        # HTML 주석 블록은 렌더 안 되는 저자 안내(폼 힌트·corpus-exclude 마커)라
+        # 예산·문장 규칙에서 면제한다 — 코드 주석에 "한 문장" 강제하지 않는 것과
+        # 같다. autogen(BLUF-INDEX)을 먼저 걸러 이 로직이 그 블록을 안 삼킨다.
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            continue
+        if "<!--" in line:
+            if "-->" not in line:
+                in_comment = True
+            continue
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        # 표 행·코드펜스·자동생성 블록은 면제 — 앞의 둘은 쪼개면 깨지고,
+        # 뒤는 저자가 손댈 수 없다. 못 쓰는 게이트는 꺼진다.
+        if in_fence or in_autogen or _TABLE_ROW.match(line):
+            continue
+        yield i, line
 
 
 def _check_content(path: Path, text: str) -> list[str]:
@@ -340,46 +403,7 @@ def _check_content(path: Path, text: str) -> list[str]:
             f"그다음 함축하고, 그래도 넘으면 docs/history로 내려라."
         )
 
-    in_fence = False
-    in_autogen = False
-    in_comment = False
-    # YAML frontmatter는 저자가 형식을 못 고르는 영역이라 면제한다 — 스칼라 값에
-    # 줄바꿈을 넣을 수 없으므로 "한 줄 한 문장"·길이 상한을 물리적으로 지킬 수
-    # 없다(에이전트 정의 .claude/agents/*.md의 description·tools가 그 자리다).
-    # **여는 자리는 파일 첫 줄로 못 박는다** — 본문 어디서나 열게 두면 수평선
-    # `---` 하나가 나머지 문서 전체의 게이트를 끈다(자동생성 마커 부분일치로
-    # 위반이 숨었던 실사고와 같은 부류).
-    in_frontmatter = bool(lines) and lines[0].strip() == "---"
-    for i, line in enumerate(lines, 1):
-        if in_frontmatter:
-            if i > 1 and line.strip() == "---":
-                in_frontmatter = False
-            continue
-        if _AUTOGEN_START.search(line):
-            in_autogen = True
-            continue
-        if _AUTOGEN_END.search(line):
-            in_autogen = False
-            continue
-        # HTML 주석 블록은 렌더 안 되는 저자 안내(폼 힌트·corpus-exclude 마커)라
-        # 예산·문장 규칙에서 면제한다 — 코드 주석에 "한 문장" 강제하지 않는 것과
-        # 같다. autogen(BLUF-INDEX)을 먼저 걸러 이 로직이 그 블록을 안 삼킨다.
-        if in_comment:
-            if "-->" in line:
-                in_comment = False
-            continue
-        if "<!--" in line:
-            if "-->" not in line:
-                in_comment = True
-            continue
-        if _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        # 표 행·코드펜스·자동생성 블록은 면제 — 앞의 둘은 쪼개면 깨지고,
-        # 뒤는 저자가 손댈 수 없다. 못 쓰는 게이트는 꺼진다.
-        if in_fence or in_autogen or _TABLE_ROW.match(line):
-            continue
-
+    for i, line in _iter_checkable_lines(lines):
         # BLUF 줄은 BLUF 예산으로만 잰다. 산문 상한으로 또 재면 폼이 허용한
         # 길이를 쓸 수 없고(rules는 BLUF 100자 > 산문 80자), 상한을 안 건
         # 유형의 BLUF가 산문 상한으로 떨어진다.
