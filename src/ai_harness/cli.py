@@ -20,6 +20,7 @@ commands:
   gen-pr-template  REQUIRED_CHECKS 등에서 PR 템플릿 생성(--check로 드리프트 감시)
   install-hooks    git 훅 설치
   install-agents   리뷰어 에이전트 템플릿 설치(.claude/agents/)
+  install-rules    공용 규칙 조문 설치(.claude/rules/, --user면 홈)
 """
 
 
@@ -58,6 +59,9 @@ def main(argv: list[str] | None = None) -> int:
         return _m(rest)
     if cmd == "install-agents":
         from ai_harness.install_agents import main as _m
+        return _m(rest)
+    if cmd == "install-rules":
+        from ai_harness.install_rules import main as _m
         return _m(rest)
 
     print(f"[ai-harness] 알 수 없는 명령: {cmd}\n\n{_USAGE}", file=sys.stderr)

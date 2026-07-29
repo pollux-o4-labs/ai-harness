@@ -18,8 +18,8 @@
 - 문서를 쓰기 전에 유형별 폼 `src/ai_harness/docs_format/<유형>.md`를 읽어라.
 - 저장소 자기 규칙은 [docs/rules/](docs/rules/)에 있다.
 - 여러 저장소가 함께 쓰는 공용 규칙 조문은 `src/ai_harness/rules/`가 정본이다.
-- 그 조문은 패키지에 동봉돼 설치본과 함께 가지만, 소비 저장소가 그것을
-  가리키게 하는 배포 수단은 아직 없다(후속 과제).
+- 소비 저장소는 `ai-harness install-rules`로 그 조문을 `.claude/rules/`에 받는다.
+- 그 폴더를 읽으라는 한 줄은 각 저장소가 자기 AGENTS.md에 손으로 둔다.
 - 그 규칙이 왜 생겼는지는 [docs/history/](docs/history/)가 진다.
 
 ## 작업 규약
