@@ -23,6 +23,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from collections.abc import Iterator
 from pathlib import Path
 
 from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
@@ -301,6 +302,59 @@ def check_file(path: Path) -> list[str]:
     return _check_content(path, path.read_text(encoding="utf-8"))
 
 
+def _iter_checkable_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
+    """규칙을 적용해도 되는 줄만 (1-based 줄번호, 콘텐츠)로 낸다.
+
+    frontmatter·자동생성 블록·HTML 주석·코드펜스·표 행 판정은 전부 상태 있고
+    순서에 의존한다(연 자리를 기억해야 닫힌 자리를 안다). 소비자(`_check_content`)가
+    적용하는 규칙(BLUF·문장·길이·좌표)은 반대로 줄마다 독립이다 — 성질이 다른 둘을
+    한 루프에 두면 어느 쪽을 고치든 다른 쪽까지 읽어야 해서 갈랐다.
+
+    형태는 `_staged_hunk_lines`와 같지만 동기는 다르다 — 그쪽은 소비자가 둘이라
+    재사용이 목적이고, 여기는 소비자가 하나라 관심사 분리가 목적이다.
+    """
+    in_fence = False
+    in_autogen = False
+    in_comment = False
+    # YAML frontmatter는 저자가 형식을 못 고르는 영역이라 면제한다 — 스칼라 값에
+    # 줄바꿈을 넣을 수 없으므로 "한 줄 한 문장"·길이 상한을 물리적으로 지킬 수
+    # 없다(에이전트 정의 .claude/agents/*.md의 description·tools가 그 자리다).
+    # **여는 자리는 파일 첫 줄로 못 박는다** — 본문 어디서나 열게 두면 수평선
+    # `---` 하나가 나머지 문서 전체의 게이트를 끈다(자동생성 마커 부분일치로
+    # 위반이 숨었던 실사고와 같은 부류).
+    in_frontmatter = bool(lines) and lines[0].strip() == "---"
+    for i, line in enumerate(lines, 1):
+        if in_frontmatter:
+            if i > 1 and line.strip() == "---":
+                in_frontmatter = False
+            continue
+        if _AUTOGEN_START.search(line):
+            in_autogen = True
+            continue
+        if _AUTOGEN_END.search(line):
+            in_autogen = False
+            continue
+        # HTML 주석 블록은 렌더 안 되는 저자 안내(폼 힌트·corpus-exclude 마커)라
+        # 예산·문장 규칙에서 면제한다 — 코드 주석에 "한 문장" 강제하지 않는 것과
+        # 같다. autogen(BLUF-INDEX)을 먼저 걸러 이 로직이 그 블록을 안 삼킨다.
+        if in_comment:
+            if "-->" in line:
+                in_comment = False
+            continue
+        if "<!--" in line:
+            if "-->" not in line:
+                in_comment = True
+            continue
+        if _FENCE.match(line):
+            in_fence = not in_fence
+            continue
+        # 표 행·코드펜스·자동생성 블록은 면제 — 앞의 둘은 쪼개면 깨지고,
+        # 뒤는 저자가 손댈 수 없다. 못 쓰는 게이트는 꺼진다.
+        if in_fence or in_autogen or _TABLE_ROW.match(line):
+            continue
+        yield i, line
+
+
 def _check_content(path: Path, text: str) -> list[str]:
     """주어진 콘텐츠 문자열에 폼을 적용한다 — 소스가 워킹트리든 인덱스 blob든.
     --staged는 인덱스 blob을 넘겨, 위반 줄번호가 staged diff의 added-set과 같은
@@ -349,46 +403,7 @@ def _check_content(path: Path, text: str) -> list[str]:
             f"그다음 함축하고, 그래도 넘으면 docs/history로 내려라."
         )
 
-    in_fence = False
-    in_autogen = False
-    in_comment = False
-    # YAML frontmatter는 저자가 형식을 못 고르는 영역이라 면제한다 — 스칼라 값에
-    # 줄바꿈을 넣을 수 없으므로 "한 줄 한 문장"·길이 상한을 물리적으로 지킬 수
-    # 없다(에이전트 정의 .claude/agents/*.md의 description·tools가 그 자리다).
-    # **여는 자리는 파일 첫 줄로 못 박는다** — 본문 어디서나 열게 두면 수평선
-    # `---` 하나가 나머지 문서 전체의 게이트를 끈다(자동생성 마커 부분일치로
-    # 위반이 숨었던 실사고와 같은 부류).
-    in_frontmatter = bool(lines) and lines[0].strip() == "---"
-    for i, line in enumerate(lines, 1):
-        if in_frontmatter:
-            if i > 1 and line.strip() == "---":
-                in_frontmatter = False
-            continue
-        if _AUTOGEN_START.search(line):
-            in_autogen = True
-            continue
-        if _AUTOGEN_END.search(line):
-            in_autogen = False
-            continue
-        # HTML 주석 블록은 렌더 안 되는 저자 안내(폼 힌트·corpus-exclude 마커)라
-        # 예산·문장 규칙에서 면제한다 — 코드 주석에 "한 문장" 강제하지 않는 것과
-        # 같다. autogen(BLUF-INDEX)을 먼저 걸러 이 로직이 그 블록을 안 삼킨다.
-        if in_comment:
-            if "-->" in line:
-                in_comment = False
-            continue
-        if "<!--" in line:
-            if "-->" not in line:
-                in_comment = True
-            continue
-        if _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        # 표 행·코드펜스·자동생성 블록은 면제 — 앞의 둘은 쪼개면 깨지고,
-        # 뒤는 저자가 손댈 수 없다. 못 쓰는 게이트는 꺼진다.
-        if in_fence or in_autogen or _TABLE_ROW.match(line):
-            continue
-
+    for i, line in _iter_checkable_lines(lines):
         # BLUF 줄은 BLUF 예산으로만 잰다. 산문 상한으로 또 재면 폼이 허용한
         # 길이를 쓸 수 없고(rules는 BLUF 100자 > 산문 80자), 상한을 안 건
         # 유형의 BLUF가 산문 상한으로 떨어진다.

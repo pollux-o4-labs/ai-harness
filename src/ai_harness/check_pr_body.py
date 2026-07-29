@@ -519,15 +519,24 @@ def _review_skeleton_template(prefix: str, sections: list[str], labels: list[str
     )
 
 
+def _print_violations(header: str, violations: list[str]) -> None:
+    """헤더 한 줄 + 위반 목록(`  - {v}`)을 stderr로 찍는 공통 관용구.
+
+    `_report`·`_report_comment`·`_report_title` 셋이 이 겉틀을 각자 되풀이하고
+    있었다 — 헤더 문구·뒤따르는 힌트(있는 경우)만 호출부가 조립한다. 출력
+    문자열 자체는 한 글자도 바뀌지 않는다(테스트가 메시지를 문자열로 검사).
+    """
+    print(header, file=sys.stderr)
+    for v in violations:
+        print(f"  - {v}", file=sys.stderr)
+
+
 def _report_comment(violations: list[str], body: str) -> None:
     """코멘트 위반을 stderr로 보고. PR 본문 `_report`와 달리 섹션 총계가 없다
     — 코멘트는 섹션이 없는 자유 형식이다."""
-    print(
-        f"[check_pr_body] PR 코멘트 리젝 — 위반 {len(violations)}건:",
-        file=sys.stderr,
+    _print_violations(
+        f"[check_pr_body] PR 코멘트 리젝 — 위반 {len(violations)}건:", violations
     )
-    for v in violations:
-        print(f"  - {v}", file=sys.stderr)
     print(
         "\n형식: docs_format/pr-comment.md",
         file=sys.stderr,
@@ -540,13 +549,11 @@ def _report(violations: list[str], body: str) -> None:
     # 없으므로 총량에 섞으면 저자가 못 건드리는 몫만큼 예산을 뺏는다.
     sections = parse_sections(body)
     total = sum(measure(sections.get(name, "")) for name in SECTION_BUDGETS)
-    print(
+    _print_violations(
         f"[check_pr_body] PR 본문 리젝 — 위반 {len(violations)}건 "
         f"(총 {total}자 / 예산 {sum(SECTION_BUDGETS.values())}자):",
-        file=sys.stderr,
+        violations,
     )
-    for v in violations:
-        print(f"  - {v}", file=sys.stderr)
     print(
         # 처방은 실재하는 것만 가리킨다 — 없는 문서로 보내면 저자는 고칠 길을 잃고
         # 게이트를 지운다. 섹션·예산의 정본은 이 스크립트이므로 템플릿만 가리킨다.
@@ -830,12 +837,9 @@ def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
 def _report_title(violations: list[str], title: str) -> None:
     """PR 제목 위반을 stderr로 보고. `_report_comment`와 같은 골격(섹션 총계가
     없다 — 제목은 섹션이 없는 한 줄이다)."""
-    print(
-        f"[check_pr_body] PR 제목 리젝 — 위반 {len(violations)}건:",
-        file=sys.stderr,
+    _print_violations(
+        f"[check_pr_body] PR 제목 리젝 — 위반 {len(violations)}건:", violations
     )
-    for v in violations:
-        print(f"  - {v}", file=sys.stderr)
 
 
 # --- gh pr merge 게이트 ------------------------------------------------------

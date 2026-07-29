@@ -42,17 +42,13 @@ def install_rules(user: bool = False) -> int:
 
     user=True면 ~/.claude/rules/(그 머신의 모든 저장소), 아니면 대상 저장소.
     """
-    if user:
-        dst_dir = Path.home() / _DST_RELDIR
-    else:
-        from ai_harness.config import target_root
+    from ai_harness.config import installer_target_dir
 
-        root = target_root()
-        if not (root / ".git").exists():
-            print(f"[install_rules] .git 없음({root}) — git 저장소가 아니라 설치 생략"
-                  f"(전역 설치는 --user).")
-            return 0
-        dst_dir = root / _DST_RELDIR
+    dst_dir = installer_target_dir(
+        user, Path.home() / _DST_RELDIR, _DST_RELDIR, "install_rules"
+    )
+    if dst_dir is None:
+        return 0
 
     if not _RULES_SRC.is_dir():
         print(f"[install_rules] 동봉 공용 규칙 없음({_RULES_SRC}) — 설치할 것 없음.")

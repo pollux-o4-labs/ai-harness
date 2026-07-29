@@ -64,6 +64,16 @@ def _init_repo(repo: Path) -> None:
     subprocess.run(["git", "-C", str(repo), "init", "-q"], check=True, capture_output=True)
 
 
+# --- _OVERLAY_NAMES 파생(gate_config.__all__과의 손동기화 방지) -----------------
+def test_overlay_names_derived_from_gate_config_public_surface():
+    """_OVERLAY_NAMES는 gate_config.__all__(DISABLED_GATES 제외)에서 파생된다 —
+    두 목록을 손으로 따로 유지하다 어긋나는 회귀를 막는다. gate_config에 새
+    공개 값을 추가하고 __all__에 넣으면(그 모듈 자신의 공개 표면 선언) 이
+    목록도 자동으로 따라온다."""
+    assert set(config._OVERLAY_NAMES) == set(gate_config.__all__) - {"DISABLED_GATES"}
+    assert "DISABLED_GATES" not in config._OVERLAY_NAMES
+
+
 # --- target_root ---------------------------------------------------------------
 def test_target_root_is_git_toplevel(tmp_path, monkeypatch):
     repo = tmp_path / "repo"

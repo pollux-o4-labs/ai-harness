@@ -4,6 +4,7 @@
 ### 문서
 - `test_check_doc_form.py` — check_doc_form의 폼-정본성·줄/BLUF 예산·표행/코드펜스 면제·화이트리스트·유형판정 fallback·pre-commit 배선 자기잠금방지를 무DB·무LLM으로 검증.
 - `test_check_pr_body.py` — check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·은어 풀이·gh 명령 본문추출·훅 exit코드·코멘트 게이트·머지 준비 dry-run을 검증.
+- `test_cli.py` — 디스패처가 선언 테이블의 모든 서브커맨드를 실제로 부를 수 있는지 검증 — 모듈 경로가 문자열이라 정적 검사가 오타를 못 잡는다.
 - `test_config.py` — 대상 저장소 gate_config 로드·값 오버레이·프로세스당-1회 가드·우아한 실패를 검증(config.py).
 - `test_gate_config.py` — gate_config.rule_cite의 공란/값-존재 토글 계약을 검증.
 - `test_gen_pr_template.py` — gen_pr_template의 REQUIRED_CHECKS 렌더·계층 재현·--check 드리프트 감시·check_pr_body 교차검증을 검증.
