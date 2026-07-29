@@ -513,7 +513,7 @@ def check_comment(body: str) -> list[str]:
         if line_max is not None and len(line) > line_max:
             violations.append(
                 f"코멘트 {i}번째 줄 {len(line)}자 > {line_max}자 — 한 줄에 "
-                f"흐름을 우겨넣지 말고 쪼개라."
+                f"흐름을 우겨넣지 말고 함축해라(문맥이 이어지면 문맥 단위로 나눈다)."
             )
 
     violations.extend(check_jargon(body))
