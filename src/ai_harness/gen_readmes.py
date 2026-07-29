@@ -271,14 +271,48 @@ def iter_folders(root: Path):
             stack.append(child)
 
 
-def build_index_block(folder: Path, missing: list[Path]) -> str:
-    """폴더의 하위 폴더/문서 BLUF를 모아 인덱스 블록 텍스트를 만든다."""
+# 아카이브 폴더(`_manifest.md` 보유)에서 번호매김 원문(`NN-*.md`)을 가리는 패턴.
+# 폴더별 build_index_block 호출마다 새로 컴파일하지 않도록 다른 컴파일 패턴들
+# (_MARK_START_RE 등)과 같이 모듈 스코프로 둔다 — 동작 변화 없는 자리 이동.
+_ARCHIVE_NUMBERED_RE = re.compile(r"^\d+[-_]")
+
+
+def _collect_subdirs(folder: Path) -> list[tuple[Path, str | None]]:
+    """인덱스에 실을 하위 폴더와 그 폴더 BLUF(이름순, 제외 규칙 적용).
+
+    BLUF 읽기(파일 I/O)를 여기서 끝낸다 — 렌더 쪽이 읽으면 이 파일이 세운
+    "수집이 I/O를 지고 렌더는 인자만 본다"가 한 축에서만 깨지고, 다음 사람이
+    렌더를 부작용 없다고 오인해 재사용·캐싱 근거로 삼는다.
+    """
+    if not folder.is_dir():
+        return []
     subdirs = sorted(
         [p for p in folder.iterdir() if p.is_dir() and not p.is_symlink() and not is_skipped_dir(p)],
         key=lambda p: p.name,
-    ) if folder.is_dir() else []
+    )
+    return [(d, readme_own_bluf(d)) for d in subdirs]
 
-    docs = sorted(
+
+def _render_subfolder_section(subdirs: list[tuple[Path, str | None]]) -> list[str]:
+    """'### 하위 폴더' 섹션 — 수집이 읽어 둔 BLUF를 한 줄씩 표시(순수)."""
+    if not subdirs:
+        return []
+    lines = ["### 하위 폴더"]
+    for d, bluf in subdirs:
+        if bluf is None:
+            desc = "(README 없음)"
+        elif bluf.startswith(TODO_PREFIX):
+            desc = f"_{bluf}_"
+        else:
+            desc = bluf
+        lines.append(f"- `{d.name}/` — {desc}")
+    lines.append("")
+    return lines
+
+
+def _collect_docs(folder: Path) -> list[Path]:
+    """인덱스에 실을 문서 목록(README·에이전트 설정 제외, 텍스트 확장자만, 이름순)."""
+    return sorted(
         [
             p for p in folder.iterdir()
             if p.is_file()
@@ -289,51 +323,51 @@ def build_index_block(folder: Path, missing: list[Path]) -> str:
         key=lambda p: p.name,
     ) if folder.is_dir() else []
 
-    lines = [MARK_START]
 
-    if subdirs:
-        lines.append("### 하위 폴더")
-        for d in subdirs:
-            bluf = readme_own_bluf(d)
-            if bluf is None:
-                desc = "(README 없음)"
-            elif bluf.startswith(TODO_PREFIX):
-                desc = f"_{bluf}_"
-            else:
-                desc = bluf
-            lines.append(f"- `{d.name}/` — {desc}")
-        lines.append("")
+def _partition_docs(docs: list[Path], is_archive: bool) -> tuple[list[str], int, list[Path]]:
+    """문서 목록을 (일반 문서 항목, 아카이브 건수, BLUF 누락 문서)로 나눈다.
 
-    # 아카이브 폴더(원문 수집본 색인 `_manifest.md` 보유): 번호 수집본은 BLUF 면제·집약 표기.
-    is_archive = (folder / "_manifest.md").exists()
-    numbered_re = re.compile(r"^\d+[-_]")
-
-    doc_entries = []
+    이 저장소 관용구(check_doc_form.py의 검사 함수들)를 따라 인자를 변형하지
+    않고 결과를 반환한다 — 호출자가 반환된 누락 목록을 자신의 missing에 합류시킨다.
+    """
+    doc_entries: list[str] = []
     archived = 0
+    doc_missing: list[Path] = []
     for f in docs:
-        if is_archive and numbered_re.match(f.name):
+        if is_archive and _ARCHIVE_NUMBERED_RE.match(f.name):
             archived += 1
             continue  # 아카이브 원문: 개별 나열·BLUF 요구 생략(색인은 _manifest.md).
         bluf = extract_bluf(f)
         if bluf is None:
             # 메타(_로 시작)·비-md는 조용히 skip, 그 외 .md 문서는 BLUF 누락 보고.
             if f.suffix.lower() in {".md", ".markdown"} and not f.name.startswith("_"):
-                missing.append(f)
+                doc_missing.append(f)
             continue
         doc_entries.append(f"- `{f.name}` — {bluf}")
+    return doc_entries, archived, doc_missing
 
-    if doc_entries:
-        lines.append("### 문서")
-        lines.extend(doc_entries)
-        lines.append("")
 
-    if is_archive and archived:
-        lines.append("### 원문 수집본")
-        lines.append(f"- `NN-*.md` {archived}건 — 색인·fetch 결과는 `_manifest.md`, 실제 예시는 `_examples.md` 참조")
-        lines.append("")
+def _render_doc_section(doc_entries: list[str]) -> list[str]:
+    """'### 문서' 섹션 — 일반 문서 항목을 그대로 나열."""
+    if not doc_entries:
+        return []
+    return ["### 문서", *doc_entries, ""]
 
-    # 정보성 바이너리/자산(BLUF 불가): 이름만 나열, 같은 확장자 다수면 집약.
-    assets = sorted(
+
+def _render_archive_section(is_archive: bool, archived: int) -> list[str]:
+    """'### 원문 수집본' 섹션 — 아카이브 폴더에서 접힌 번호매김 문서 건수만 표시."""
+    if not (is_archive and archived):
+        return []
+    return [
+        "### 원문 수집본",
+        f"- `NN-*.md` {archived}건 — 색인·fetch 결과는 `_manifest.md`, 실제 예시는 `_examples.md` 참조",
+        "",
+    ]
+
+
+def _collect_assets(folder: Path) -> list[Path]:
+    """인덱스에 실을 정보성 바이너리/자산 목록(gitignore 제외, 이름순)."""
+    return sorted(
         [p for p in folder.iterdir()
          if p.is_file()
          and not p.is_symlink()
@@ -341,22 +375,49 @@ def build_index_block(folder: Path, missing: list[Path]) -> str:
          and not is_git_ignored(p)],
         key=lambda p: p.name,
     ) if folder.is_dir() else []
-    if assets:
-        ext_counts = Counter(p.suffix.lower() for p in assets)
-        collapsed: set[str] = set()
-        asset_lines: list[str] = []
-        for a in assets:
-            ext = a.suffix.lower()
-            if ext_counts[ext] >= _ASSET_COLLAPSE_MIN:
-                if ext not in collapsed:
-                    collapsed.add(ext)
-                    asset_lines.append(f"- `*{ext}` {ext_counts[ext]}개")
-            else:
-                asset_lines.append(f"- `{a.name}`")
-        lines.append("### 기타 파일 (BLUF 없음)")
-        lines.extend(asset_lines)
-        lines.append("")
 
+
+def _render_asset_section(assets: list[Path]) -> list[str]:
+    """'### 기타 파일 (BLUF 없음)' 섹션 — 같은 확장자 자산이 다수면 집약 표기."""
+    if not assets:
+        return []
+    ext_counts = Counter(p.suffix.lower() for p in assets)
+    collapsed: set[str] = set()
+    asset_lines: list[str] = []
+    for a in assets:
+        ext = a.suffix.lower()
+        if ext_counts[ext] >= _ASSET_COLLAPSE_MIN:
+            if ext not in collapsed:
+                collapsed.add(ext)
+                asset_lines.append(f"- `*{ext}` {ext_counts[ext]}개")
+        else:
+            asset_lines.append(f"- `{a.name}`")
+    return ["### 기타 파일 (BLUF 없음)", *asset_lines, ""]
+
+
+def build_index_block(folder: Path, missing: list[Path]) -> str:
+    """폴더의 하위 폴더/문서 BLUF를 모아 인덱스 블록 텍스트를 만든다.
+
+    네 축(하위폴더/문서/아카이브 집약/자산 집약) 각각 "수집(파일시스템 I/O) →
+    렌더(순수 문자열)" 두 단계로 뽑혀 있다 — 이 함수는 그 축들을 순서대로
+    조립만 한다. 공개 시그니처(인자로 받은 missing을 변형)는 테스트가 부르므로
+    그대로 유지한다.
+    """
+    subdirs = _collect_subdirs(folder)
+    docs = _collect_docs(folder)
+
+    # 아카이브 폴더(원문 수집본 색인 `_manifest.md` 보유): 번호 수집본은 BLUF 면제·집약 표기.
+    is_archive = (folder / "_manifest.md").exists()
+    doc_entries, archived, doc_missing = _partition_docs(docs, is_archive)
+    missing.extend(doc_missing)
+
+    assets = _collect_assets(folder)
+
+    lines = [MARK_START]
+    lines.extend(_render_subfolder_section(subdirs))
+    lines.extend(_render_doc_section(doc_entries))
+    lines.extend(_render_archive_section(is_archive, archived))
+    lines.extend(_render_asset_section(assets))
     lines.append(MARK_END)
     return "\n".join(lines).rstrip() + "\n"
 
@@ -409,6 +470,112 @@ def compose_readme(folder: Path, index_block: str) -> str:
     # 신규 README: 폴더 목적 BLUF 자리(TODO)를 둔다.
     header = f"> **BLUF:** {TODO_PREFIX} — `{label}/` 폴더 목적을 한 줄로 채우세요."
     return header + "\n\n" + index_block.rstrip() + "\n"
+
+
+def _print_duplicate_markers_abort(
+    duplicated: list[tuple[Path, int, int]], root: Path
+) -> None:
+    """마커 쌍(START/END)이 온전한 한 쌍이 아닌 README들에 대한 중단 안내.
+
+    처방은 두 경우가 다르다 — 여분을 지우는 것과 짝을 맞추는 것. 한 문구로
+    뭉뚱그리면 짝이 없어 걸린 사람이 "지울 여분"을 찾다 헤맨다.
+    """
+    print("\n[gen_readmes] 중단 — 자동생성 마커가 온전한 한 쌍이 아니다.",
+          file=sys.stderr)
+    print("  쌍이 여럿이면 첫 쌍만 갱신돼 나머지가 낡은 채 남고, 짝이 안 맞으면",
+          file=sys.stderr)
+    print("  고아 마커 뒤에 새 블록이 덧붙는다. 둘 다 쓰기 전에 멈췄다.",
+          file=sys.stderr)
+    for p, n_start, n_end in duplicated:
+        if n_start > 1 or n_end > 1:
+            fix = "여분의 블록을 지워 한 쌍만 남겨라(어느 쪽이 최신인지는 기계가 못 가린다)"
+        else:
+            fix = "짝 없는 마커를 지우거나 빠진 짝을 채워 한 쌍으로 만들어라"
+        print(f"  {p.relative_to(root).as_posix()} — START {n_start}회, END {n_end}회"
+              f"\n    → {fix}", file=sys.stderr)
+    print("\n  정리한 뒤 이 명령을 다시 돌려라.", file=sys.stderr)
+
+
+def _print_handwritten_abort(doomed: list[tuple[Path, list[str]]], root: Path) -> None:
+    """자동생성 블록 안에 손으로 쓴 줄이 있는 README들에 대한 중단 안내.
+
+    쓰고 나서 알리면 이미 지워진 뒤라 알림이 소용없다 — 이 함수는 아무것도
+    쓰지 않은 상태에서 무엇이 사라질지·어디로 옮길지를 알리기만 한다.
+    """
+    print("\n[gen_readmes] 중단 — 자동생성 블록 안에 손으로 쓴 줄이 있다.",
+          file=sys.stderr)
+    print("  재생성하면 아래 줄들이 사라진다. 지우기 전에 멈췄다.",
+          file=sys.stderr)
+    for p, lines in doomed:
+        print(f"\n  {p.relative_to(root).as_posix()}", file=sys.stderr)
+        for line in lines:
+            print(f"      {line}", file=sys.stderr)
+    print("""
+  줄이거나 형식을 고치지 마라 — **먼저 어디로 갈지 정하라.** 목적지가 그 자리의
+  상한을 정하므로, 목적지 없이 축약하면 형식이 안 맞아 또 고치게 된다.
+
+  그 내용이 특정 문서에 관한 것이면
+      → 그 문서의 BLUF 한 줄을 고쳐라. 인덱스는 거기서 파생된다.
+  이 폴더 자체의 목적이면
+      → README 맨 위 BLUF 한 줄에 써라(블록 밖이라 재생성이 보존한다).
+  둘 다 아니면
+      → README에 있을 내용이 아니다. 원본 문서 본문으로 옮겨라.
+
+  옮긴 뒤 이 명령을 다시 돌려라.""", file=sys.stderr)
+
+
+def _print_write_failure(
+    readme: Path,
+    e: OSError,
+    written: list[Path],
+    pending: list[tuple[Path, str]],
+    root: Path,
+) -> None:
+    """쓰기 도중 OS 오류가 난 지점을 보고 — 어디까지 썼고, 무엇을 못 썼는지.
+
+    손글씨 검사는 전체를 먼저 훑고 판정해 반쪽 실행을 막지만, 파일시스템
+    오류(권한 등)는 그 보호 밖이다. 이미 써진 파일은 되돌리지 않는다 — 각
+    파일은 원자적으로 교체되므로(`_write_readme_atomically`) 완성된 결과이지
+    반쪽이 아니다. 즉 남는 것은 "일부 폴더만 갱신됨"이지 "깨진 파일"이 아니다.
+    """
+    not_written = [r for r, _ in pending if r not in written]
+    print(f"\n[gen_readmes] 쓰기 실패 — {len(written)}/{len(pending)}개 완료 후 중단: "
+          f"{readme.relative_to(root).as_posix()} ({e})", file=sys.stderr)
+    if written:
+        print("  이미 써진 파일(반쪽 실행 — 롤백하지 않음):", file=sys.stderr)
+        for p in written:
+            print(f"    - {p.relative_to(root).as_posix()}", file=sys.stderr)
+    print("  못 쓴 파일:", file=sys.stderr)
+    for p in not_written:
+        print(f"    - {p.relative_to(root).as_posix()}", file=sys.stderr)
+
+
+def _print_summary(
+    root: Path,
+    changed: list[Path],
+    missing_bluf: list[Path],
+    todo_folders: list[Path],
+    check: bool,
+) -> None:
+    """최종 리포트 출력 — 변경/누락/TODO 현황을 사람이 읽을 형태로 나열.
+
+    DRIFT 반환 여부 판정은 이 함수 밖 main()의 몫이다(표시와 판단을 분리).
+    """
+    # 국소 concise 헬퍼(lambda 대입) — E731은 이 레포 관례대로 전역 ignore가 아니라
+    # 그 줄에서 인라인 면제한다(pyproject `[tool.ruff.lint]` 주석 참조).
+    rel = lambda p: p.relative_to(root).as_posix()  # noqa: E731
+    print(f"[gen_readmes] 루트: {root}")
+    print(f"  변경{'(필요)' if check else ''} README: {len(changed)}")
+    for p in changed:
+        print(f"    ~ {rel(p)}")
+    if missing_bluf:
+        print(f"  BLUF 누락 문서(.md): {len(missing_bluf)}")
+        for p in sorted(set(missing_bluf)):
+            print(f"    ! {rel(p)}")
+    if todo_folders:
+        print(f"  폴더 목적 BLUF 미작성(README 상단 TODO): {len(todo_folders)}")
+        for p in todo_folders:
+            print(f"    ? {rel(p) if p != root else '.'}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -477,22 +644,7 @@ def main(argv: list[str] | None = None) -> int:
     # --check가 "이상 없음"이라 오판한다 — 어느 쌍이 최신인지는 기계가 못
     # 가리므로 사람이 정리한 뒤 다시 돌리게 한다.
     if duplicated:
-        print("\n[gen_readmes] 중단 — 자동생성 마커가 온전한 한 쌍이 아니다.",
-              file=sys.stderr)
-        print("  쌍이 여럿이면 첫 쌍만 갱신돼 나머지가 낡은 채 남고, 짝이 안 맞으면",
-              file=sys.stderr)
-        print("  고아 마커 뒤에 새 블록이 덧붙는다. 둘 다 쓰기 전에 멈췄다.",
-              file=sys.stderr)
-        # 처방은 두 경우가 다르다 — 여분을 지우는 것과 짝을 맞추는 것. 한 문구로
-        # 뭉뚱그리면 짝이 없어 걸린 사람이 "지울 여분"을 찾다 헤맨다.
-        for p, n_start, n_end in duplicated:
-            if n_start > 1 or n_end > 1:
-                fix = "여분의 블록을 지워 한 쌍만 남겨라(어느 쪽이 최신인지는 기계가 못 가린다)"
-            else:
-                fix = "짝 없는 마커를 지우거나 빠진 짝을 채워 한 쌍으로 만들어라"
-            print(f"  {p.relative_to(root).as_posix()} — START {n_start}회, END {n_end}회"
-                  f"\n    → {fix}", file=sys.stderr)
-        print("\n  정리한 뒤 이 명령을 다시 돌려라.", file=sys.stderr)
+        _print_duplicate_markers_abort(duplicated, root)
         return DUPLICATE_MARKERS
 
     # 손으로 쓴 줄이 하나라도 블록 안에 있으면 **아무것도 쓰지 않고 멈춘다.**
@@ -500,26 +652,7 @@ def main(argv: list[str] | None = None) -> int:
     # 있어야 알림이 값어치를 갖는다. 스캔을 다 돌린 뒤 판정하는 이유는, 한
     # 폴더가 걸렸는데 앞 폴더는 이미 써버리는 반쪽 실행을 막기 위해서다.
     if doomed:
-        print("\n[gen_readmes] 중단 — 자동생성 블록 안에 손으로 쓴 줄이 있다.",
-              file=sys.stderr)
-        print("  재생성하면 아래 줄들이 사라진다. 지우기 전에 멈췄다.",
-              file=sys.stderr)
-        for p, lines in doomed:
-            print(f"\n  {p.relative_to(root).as_posix()}", file=sys.stderr)
-            for line in lines:
-                print(f"      {line}", file=sys.stderr)
-        print("""
-  줄이거나 형식을 고치지 마라 — **먼저 어디로 갈지 정하라.** 목적지가 그 자리의
-  상한을 정하므로, 목적지 없이 축약하면 형식이 안 맞아 또 고치게 된다.
-
-  그 내용이 특정 문서에 관한 것이면
-      → 그 문서의 BLUF 한 줄을 고쳐라. 인덱스는 거기서 파생된다.
-  이 폴더 자체의 목적이면
-      → README 맨 위 BLUF 한 줄에 써라(블록 밖이라 재생성이 보존한다).
-  둘 다 아니면
-      → README에 있을 내용이 아니다. 원본 문서 본문으로 옮겨라.
-
-  옮긴 뒤 이 명령을 다시 돌려라.""", file=sys.stderr)
+        _print_handwritten_abort(doomed, root)
         return HANDWRITTEN_ABORT
 
     if not args.check:
@@ -532,37 +665,12 @@ def main(argv: list[str] | None = None) -> int:
             # 손글씨 검사는 전체를 먼저 훑고 판정해 반쪽 실행을 막지만, 파일시스템
             # 오류(권한 등)는 그 보호 밖이다 — 잡아서 어디까지 썼는지 보고하고,
             # 파이썬 기본 크래시 종료코드(1)로 죽으면 DRIFT와 겹치므로 이름 붙은
-            # 코드로 끝낸다. 이미 써진 파일은 되돌리지 않는다 — 각 파일은 원자적으로
-            # 교체되므로(`_write_readme_atomically`) 완성된 결과이지 반쪽이 아니다.
-            # 즉 남는 것은 "일부 폴더만 갱신됨"이지 "깨진 파일"이 아니다.
-            not_written = [r for r, _ in pending if r not in written]
-            print(f"\n[gen_readmes] 쓰기 실패 — {len(written)}/{len(pending)}개 완료 후 중단: "
-                  f"{readme.relative_to(root).as_posix()} ({e})", file=sys.stderr)
-            if written:
-                print("  이미 써진 파일(반쪽 실행 — 롤백하지 않음):", file=sys.stderr)
-                for p in written:
-                    print(f"    - {p.relative_to(root).as_posix()}", file=sys.stderr)
-            print("  못 쓴 파일:", file=sys.stderr)
-            for p in not_written:
-                print(f"    - {p.relative_to(root).as_posix()}", file=sys.stderr)
+            # 코드로 끝낸다.
+            _print_write_failure(readme, e, written, pending, root)
             return WRITE_FAILURE
 
     # ── 리포트 ────────────────────────────────────────────────────────────────
-    # 국소 concise 헬퍼(lambda 대입) — E731은 이 레포 관례대로 전역 ignore가 아니라
-    # 그 줄에서 인라인 면제한다(pyproject `[tool.ruff.lint]` 주석 참조).
-    rel = lambda p: p.relative_to(root).as_posix()  # noqa: E731
-    print(f"[gen_readmes] 루트: {root}")
-    print(f"  변경{'(필요)' if args.check else ''} README: {len(changed)}")
-    for p in changed:
-        print(f"    ~ {rel(p)}")
-    if missing_bluf:
-        print(f"  BLUF 누락 문서(.md): {len(missing_bluf)}")
-        for p in sorted(set(missing_bluf)):
-            print(f"    ! {rel(p)}")
-    if todo_folders:
-        print(f"  폴더 목적 BLUF 미작성(README 상단 TODO): {len(todo_folders)}")
-        for p in todo_folders:
-            print(f"    ? {rel(p) if p != root else '.'}")
+    _print_summary(root, changed, missing_bluf, todo_folders, args.check)
 
     if args.check and (changed or missing_bluf):
         print("[gen_readmes] --check: 갱신 필요 또는 BLUF 누락 존재 → 비영 종료")
