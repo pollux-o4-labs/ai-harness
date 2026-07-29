@@ -58,6 +58,13 @@ _AGENT_CONFIG_NAMES = frozenset({"AGENTS.md", "CLAUDE.md"})
 _AGENT_DEF_DIR: tuple[str, str] = (".claude", "agents")
 _AGENT_DEF_TYPE = "agent-def"
 
+# 패키지에 동봉된 공용 규칙 조문. 휠에 담기려면 `src/` 아래여야 해서 위 docs/
+# 갈래에 안 걸린다 — 전역 폴백이 마침 rules라 지금은 맞게 떨어지지만, 우연에
+# 기대면 `_GLOBAL_FORM`이 바뀌는 순간 이 파일만 조용히 다른 예산을 받는다
+# (agent-def가 겪은 그것). 이 경로는 이 패키지 자기 저장소에만 있다.
+_BUNDLED_RULES_DIR: tuple[str, str, str] = ("src", "ai_harness", "rules")
+_BUNDLED_RULES_TYPE = "rules"
+
 # 예산 면제 문서. **비어 있는 게 기본이다** — 길어야 정상인 문서(레퍼런스·
 # 기록 등)가 관측되면 그때 경로를 여기 추가한다. 미리 채워두지 않는다.
 # 이 목록의 정본은 이 파일이다. 등재 시 왜 면제인지 한 줄 주석을 붙일 것.
@@ -254,6 +261,8 @@ def doc_type(path: Path) -> str | None:
     # 실제 호출 경로가 생기면 그때 스캔으로 넓혀라 — 지금 넓히면 근거 없는 분기다.
     if len(parts) >= 3 and parts[:2] == _AGENT_DEF_DIR:
         return _AGENT_DEF_TYPE
+    if len(parts) >= 4 and parts[:3] == _BUNDLED_RULES_DIR:
+        return _BUNDLED_RULES_TYPE
     # 에이전트 설정 파일은 경로가 아니라 이름이 유형이다 — 루트에도 하위 저장소에도
     # 같은 이름으로 산다.
     if path.name in _AGENT_CONFIG_NAMES:

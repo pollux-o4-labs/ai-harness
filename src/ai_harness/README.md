@@ -5,6 +5,7 @@
 - `agents/` — install-agents가 대상 .claude/agents/로 복사하는 상설 리뷰어 3관점 템플릿.
 - `docs_format/` — 문서 유형별 폼(골격·줄 예산)의 정본 — `ai-harness check-doc`가 파싱해 강제한다.
 - `hooks/` — install-hooks가 대상 .git/hooks/로 설치하는 git 훅(pre-commit 등).
+- `rules/` — 여러 저장소가 함께 쓰는 공용 규칙 조문의 정본 — 패키지에 동봉돼 설치본과 함께 간다.
 
 ### 문서
 - `__init__.py` — ai-harness 게이트 패키지 — 설치된 단일 CLI(`ai-harness`)가 이 패키지의 게이트 모듈로 라우팅한다.

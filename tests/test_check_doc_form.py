@@ -770,6 +770,15 @@ def test_agent_definition_path_has_its_own_type(real_forms):
     assert cdf.doc_type(Path(".claude/agents/reviewer.md")) == "agent-def"
 
 
+def test_bundled_shared_rule_path_has_its_own_type(real_forms):
+    """동봉 공용 규칙(`src/ai_harness/rules/*.md`)도 유형 판정을 받아야 한다.
+
+    휠에 담기려면 `docs/` 밖이라 전역 폴백으로 떨어지는데, 그건 우연이라
+    `_GLOBAL_FORM`이 바뀌면 이 파일만 조용히 다른 예산을 받는다(위와 같은 함정)."""
+    assert cdf.doc_type(Path("src/ai_harness/rules/some-rule.md")) == "rules"
+    assert cdf.doc_type(Path("src/ai_harness/rules")) is None  # 3세그먼트: 파일명 없음
+
+
 def test_agent_definition_nested_in_another_repo_is_deferred_not_supported(real_forms):
     """중첩 저장소의 `<하위 저장소>/.claude/agents/`는 **의도적으로** 유형이 아니다.
 
