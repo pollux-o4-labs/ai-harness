@@ -12,7 +12,7 @@
 - `check_doc_form.py` — 변경된 .md가 유형별 폼(docs_format/*.md)의 줄 예산을 지키는지 판정하는 룰 게이트(stdlib only, LLM 0) — pre-commit 훅으로 커밋을 리젝한다.
 - `check_pr_body.py` — PR 본문이 필수 섹션을 갖췄고 각 섹션이 글자 예산 안인지, PR 제목이 conventional-commit 형식인지 판정하는 룰 게이트(stdlib only, LLM 0) — Claude Code PreToolUse 훅으로 `gh pr create`·`gh pr merge`를 리젝한다.
 - `cli.py` — ai-harness 게이트 서브커맨드 디스패처 — 설치된 단일 CLI가 각 게이트 모듈의 main으로 라우팅한다(로직은 각 모듈이 정본).
-- `config.py` — 대상 저장소 루트의 gate_config.py 값을 번들 모듈에 얹어(오버레이) 설치형 CLI가 그 저장소 값으로 동작하게 하는 다리 — 로드·우아한 실패·프로세스당-1회 가드.
+- `config.py` — 대상 저장소가 어디이고 그 값이 무엇인지를 정하는 곳 — gate_config 오버레이(로드·우아한 실패·1회 가드)와 설치기 대상 경로 판정.
 - `gate_config.py` — 게이트 core(check_pr_body.py·check_doc_form.py)의 repo별 설정값 — 이 파일만 레포마다 다르고 나머지 게이트 코드는 전 레포에서 바이트 동일해야 한다.
 - `gen_pr_template.py` — check_pr_body.py의 REQUIRED_CHECKS 등 정본 상수에서 `.github/PULL_REQUEST_TEMPLATE.md`를 생성하고, `--check`로 드리프트를 감시하는 게이트(LLM 0, gen_readmes.py --check와 동형).
 - `gen_readmes.py` — 각 폴더 하위 문서/폴더의 BLUF를 모아 README.md의 자동 인덱스 블록만 생성·갱신하는 결정적 스크립트(LLM 0).

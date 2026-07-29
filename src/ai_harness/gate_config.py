@@ -22,6 +22,23 @@ from typing import Callable
 
 from ai_harness.line_shapes import CHECKLIST_SECTION, is_checkbox_line, is_issue_ref_line
 
+# 이 모듈의 공개 표면 — 대상 저장소가 오버라이드할 수 있는 이름은 여기 있는
+# 것뿐이다(`config.py`가 `DISABLED_GATES`를 뺀 나머지를 여기서 파생한다). 새
+# 설정값을 추가하면 **이 목록에도 넣어라** — 안 넣으면 정의는 됐어도 대상
+# 저장소가 그 값을 덮어써도 조용히 무시된다(config.py의 오버레이가 이 목록
+# 밖은 안 본다). `CHECKLIST_SECTION`·`is_checkbox_line`·`is_issue_ref_line`은
+# line_shapes.py에서 온 재노출이라 여기 안 넣는다(이 모듈이 낳은 값이 아니다).
+__all__ = (
+    "DISABLED_GATES",
+    "JARGON_TERMS",
+    "EXTRA_AUTOGEN_MARKERS",
+    "EXEMPT_SECTIONS",
+    "build_exempt_shape",
+    "RULE_DOC_AUTHORING",
+    "RULE_REVIEW_EVIDENCE",
+    "rule_cite",
+)
+
 # 이 저장소에서 끌 게이트 서브커맨드 이름(예: "gen-readmes"). **기본은 전부 켬**
 # — 비어 있으면 설치된 게이트가 모두 돈다(BLUF·문서폼·PR본문). 특정 게이트가
 # 맞지 않는 저장소만 여기서 예외로 끈다(opt-out). CLI 디스패처가 대상 저장소의

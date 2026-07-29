@@ -306,10 +306,12 @@ def _iter_checkable_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
     """규칙을 적용해도 되는 줄만 (1-based 줄번호, 콘텐츠)로 낸다.
 
     frontmatter·자동생성 블록·HTML 주석·코드펜스·표 행 판정은 전부 상태 있고
-    순서에 의존한다(연 자리를 기억해야 닫힌 자리를 안다) — `_staged_hunk_lines`가
-    diff 파싱 상태기계를 제너레이터로 뽑아낸 것과 같은 이유로 여기서도 뽑아낸다.
-    소비자(`_check_content`)는 이 결과에 상태 없는 규칙(BLUF·문장·길이·좌표)만
-    적용하면 된다.
+    순서에 의존한다(연 자리를 기억해야 닫힌 자리를 안다). 소비자(`_check_content`)가
+    적용하는 규칙(BLUF·문장·길이·좌표)은 반대로 줄마다 독립이다 — 성질이 다른 둘을
+    한 루프에 두면 어느 쪽을 고치든 다른 쪽까지 읽어야 해서 갈랐다.
+
+    형태는 `_staged_hunk_lines`와 같지만 동기는 다르다 — 그쪽은 소비자가 둘이라
+    재사용이 목적이고, 여기는 소비자가 하나라 관심사 분리가 목적이다.
     """
     in_fence = False
     in_autogen = False

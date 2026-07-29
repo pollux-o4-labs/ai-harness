@@ -150,12 +150,24 @@ def test_repo_template_has_no_drift():
 
 
 def test_hierarchy_indices_pin_to_expected_items():
-    """`_CHECK_HIERARCHY` 부모 인덱스가 기대한 REQUIRED_CHECKS 항목에 고정 —
-    커버리지 테스트가 못 잡는 '개수 동일, 순서만' 재정렬을 이 앵커가 잡는다
-    (재서술이 아니라 각 부모 슬롯이 여전히 그 의미의 항목인지 확인하는 앵커)."""
-    parents = [p for p, _ in gpt._CHECK_HIERARCHY]
-    assert parents == [0, 3, 7, 8]
+    """`_CHECK_HIERARCHY`의 부모·자식 인덱스 전부가 기대한 REQUIRED_CHECKS
+    항목에 고정된다 — 커버리지 테스트(모든 인덱스가 정확히 한 번씩 등장)는 못
+    잡는 '개수 동일, 형제 순서만 재정렬'을 이 앵커가 잡는다(재서술이 아니라
+    각 슬롯이 여전히 그 의미의 항목인지 확인하는 앵커). 부모만이 아니라
+    자식까지 정확한 (parent, children) 구조로 고정해야 형제 순서가 바뀌면
+    렌더 의미가 조용히 달라지는 걸 잡는다."""
+    assert gpt._CHECK_HIERARCHY == (
+        (0, (1, 2)),
+        (3, (4, 5, 6)),
+        (7, ()),
+        (8, ()),
+    )
     assert cpb.REQUIRED_CHECKS[0].startswith("가독성")
+    assert cpb.REQUIRED_CHECKS[1].startswith("과한 내부 은어")
+    assert cpb.REQUIRED_CHECKS[2].startswith("비전문가")
     assert cpb.REQUIRED_CHECKS[3].startswith("이 변경이 다른 문서")
+    assert cpb.REQUIRED_CHECKS[4].startswith("바꾼 값")
+    assert cpb.REQUIRED_CHECKS[5].startswith("이 문서를 가리키던")
+    assert cpb.REQUIRED_CHECKS[6].startswith("영향받는 문서의 요약")
     assert cpb.REQUIRED_CHECKS[7].startswith("필요한 테스트")
     assert cpb.REQUIRED_CHECKS[8].startswith("동작을 깨는")
