@@ -22,5 +22,9 @@
 
 ## 승격
 
-- `scripts/check_doc_form.py::_AUTOGEN_START`·`_AUTOGEN_END` — 줄 시작 앵커로
-  전환한 구현(정본).
+- `src/ai_harness/check_doc_form.py::_AUTOGEN_START`·`_AUTOGEN_END` — 줄 시작
+  앵커로 전환한 구현(정본).
+- `src/ai_harness/gen_readmes.py::_MARK_START_RE`·`_MARK_END_RE` — 같은 처방을
+  뒤늦게 받은 구현. 마커를 만들어 내는 쪽인데 앵커가 없어 재발할 수 있었다.
+- 마커를 다루는 코드가 늘면 이 목록에 올려라. 목록이 비면 다음 사람이
+  "어디까지 고쳤나"를 코드 전수 검색으로 다시 알아내야 한다.
