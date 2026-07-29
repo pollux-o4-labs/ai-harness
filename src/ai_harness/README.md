@@ -18,5 +18,6 @@
 - `gen_readmes.py` — 각 폴더 하위 문서/폴더의 BLUF를 모아 README.md의 자동 인덱스 블록만 생성·갱신하는 결정적 스크립트(LLM 0).
 - `install_agents.py` — 패키지에 동봉된 리뷰어 에이전트 템플릿을 대상 저장소의 .claude/agents/(또는 --user면 ~/.claude/agents/)로 복사하는 설치기 — 기존 파일은 안 덮어 저장소 커스터마이즈를 보존한다.
 - `install_hooks.py` — 패키지에 동봉된 git 훅 템플릿을 대상 저장소(git rev-parse)의 .git/hooks/로 멱등 복사·chmod +x 하는 설치기.
+- `install_rules.py` — 패키지에 동봉된 공용 규칙 조문을 대상 저장소의 .claude/rules/(또는 --user면 ~/.claude/rules/)로 복사하는 설치기 — 조문은 정본이라 기존 파일을 덮는다.
 
 <!-- BLUF-INDEX:END -->

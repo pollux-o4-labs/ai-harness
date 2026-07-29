@@ -10,6 +10,7 @@
 - `test_gen_readmes_guard.py` — gen_readmes의 자동생성 블록 파괴 방지와 gitignore 폴더 제외를 검증하는 회귀.
 - `test_install_agents.py` — install-agents가 동봉 리뷰어 템플릿을 대상 .claude/agents/(또는 --user면 ~/.claude/agents/)로 복사하고 기존 커스터마이즈는 보존하는지 검증(install_agents.py).
 - `test_install_hooks.py` — install-hooks가 대상 저장소(git 루트)의 .git/hooks로 동봉 훅을 멱등 설치하는지 검증(install_hooks.py).
+- `test_install_rules.py` — install-rules가 동봉 공용 조문을 대상 .claude/rules/(또는 --user면 ~/.claude/rules/)로 복사하고, 정본이라 기존 사본을 덮는지 검증(install_rules.py).
 - `test_ruff_clean.py` — ruff check가 위반 0인지 pytest로 고정 — [tool.ruff] 설정이 죽은 값이 아니라 실제 게이트가 되게(CI/훅 신설 없이 pytest 한 방에 흡수).
 
 <!-- BLUF-INDEX:END -->

@@ -42,6 +42,8 @@ ai-harness check-doc       # 문서 폼(줄 예산) 게이트
 ai-harness gen-readmes     # BLUF 기반 README 자동 생성
 ai-harness gen-pr-template # PR 템플릿 생성(REQUIRED_CHECKS 등에서 파생, --check 드리프트 감시)
 ai-harness install-hooks   # pre-commit 훅 설치
+ai-harness install-agents  # 리뷰어 에이전트 템플릿 설치(.claude/agents/, 기존은 보존)
+ai-harness install-rules   # 공용 규칙 조문 설치(.claude/rules/, --user면 홈)
 ```
 
 ## 저장소별 설정
