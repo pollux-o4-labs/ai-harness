@@ -63,6 +63,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+# 레포별 설정(은어 목록·면제 섹션·규칙 인용) — 대상 저장소가 값을 오버레이한다.
+from ai_harness.gate_config import (
+    EXEMPT_SECTIONS,
+    JARGON_TERMS,
+    RULE_REVIEW_EVIDENCE,
+    build_exempt_shape,
+    rule_cite as _rule_cite,
+)
+# 체크리스트 섹션명은 이 파일 로직이 직접 쓰고, 테스트도 `cpb.CHECKLIST_SECTION`
+# 으로 읽는다. 줄 형태 판정 두 함수는 여기서 재노출하지 않는다 — 쓰는 쪽이
+# gate_config 하나뿐이라 그쪽이 line_shapes에서 바로 가져가면 된다.
+from ai_harness.line_shapes import CHECKLIST_SECTION
+
 # 이 dict가 PR 본문 예산의 정본이다 — 문서·템플릿은 이 값을 재서술하지 말고
 # 이 파일을 가리킬 것. 위반 메시지가 실측값과 함께 예산을 알려주므로 저자는
 # 여기를 안 읽어도 된다.
@@ -73,76 +86,7 @@ SECTION_BUDGETS: dict[str, int] = {
     "검증": 150,
 }
 
-# 기계가 판정 못 하는 항목의 자기신고 섹션. 예산 대상이 아니다(문구가 고정이라
-# 저자가 줄일 수 없다). **이 섹션은 강제가 아니라 자기보고다** — 자기보고
-# 불신이 겨냥하는 바로 그 형태이므로, 여기 체크가 곧 사실이라고 읽어서는 안 된다.
-CHECKLIST_SECTION = "확인"
-
-# 체크박스 줄. 들여쓴 하위 항목도 받는다(중첩이 곧 위반이 되면 안 된다).
-_CHECKBOX_LINE = re.compile(r"^\s*-\s*\[[ xX]\]\s+\S")
-
-# 이슈 참조 토큰 — `#12`, `owner/repo#12`, 그리고 GitHub이 링크하는 전체 URL.
-# `repo#12`(레포명만)는 일부러 뺐다: GitHub이 자동 링크하지 않아 독자가 못 따라간다.
-_REF_TOKEN = re.compile(
-    r"https?://github\.com/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+/(?:issues|pull)/\d+"
-    r"|(?:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+)?#\d+"
-)
-# 종료 키워드. GitHub이 인식하는 것만.
-#
-# **긴 대안을 먼저** 둔다. 정규식 대안은 왼쪽부터 먹으므로 `Clos(?:e|es|ed)`로 쓰면
-# "Closes"에서 "Close"만 먹고 "s"를 남긴다 — 매칭 위치가 고정된 `.sub()`는 앵커
-# 있는 매칭과 달리 되짚지 않는다. 남은 "s"가 산문으로 오인돼 정상 참조가 리젝됐다.
-_REF_KEYWORD = re.compile(
-    r"Closed|Closes|Close|Fixed|Fixes|Fix|Resolved|Resolves|Resolve|Refs|Ref|and",
-    re.IGNORECASE,
-)
-
 _NONE_LINE = re.compile(r"^\s*(?:없음|N/?A)\s*$", re.IGNORECASE)
-
-
-def is_issue_ref_line(line: str) -> bool:
-    """줄 전체가 이슈 참조로만 이뤄졌는지 — 참조 여러 개도 받는다.
-
-    `Closes #1, #2`·`Closes #1, closes #2`·이슈 URL은 GitHub이 정상 링크하는 표준
-    표기라 받아야 한다(정규식으로 "한 줄에 하나"를 강요하면 게이트가 아니라 족쇄가
-    된다 — 리뷰 지적). 참조 토큰·키워드·구분자를 걷어내고 **남는 게 있으면**
-    그건 산문이므로 리젝한다.
-
-    `gate_config.py`가 `EXEMPT_SHAPE`를 구성할 때 이 이름을 직접 import한다 —
-    공개 함수(밑줄 없음)로 둔 이유가 그것이다.
-    """
-    if not _REF_TOKEN.search(line):
-        return False
-    rest = _REF_KEYWORD.sub("", _REF_TOKEN.sub("", line))
-    return re.sub(r"[\s,;\-·]+", "", rest) == ""
-
-
-def is_checkbox_line(line: str) -> bool:
-    """줄이 체크박스 형식(`- [ ] ...`/`- [x] ...`)인지 — 면제 섹션 형태 검증에 쓴다.
-
-    `is_issue_ref_line`과 같은 이유로 공개 함수다 — `gate_config.py`가 이
-    이름을 직접 import해 `EXEMPT_SHAPE`를 만든다.
-    """
-    return bool(_CHECKBOX_LINE.match(line))
-
-
-# --- 레포별 설정(gate_config.py) --------------------------------------------
-#
-# `build_exempt_shape()` 호출은 반드시 위 두 함수·CHECKLIST_SECTION이 정의된
-# **뒤**에 와야 한다 — 그 함수가 이 파일을 거꾸로 import해(`from check_pr_body
-# import is_checkbox_line, ...`) EXEMPT_SHAPE를 만드는데, 그 시점에 이 두
-# 이름이 이미 이 모듈에 있어야 순환 임포트가 성립한다(파이썬은 부분 초기화된
-# 모듈이라도 이미 실행된 만큼의 이름은 내준다). gate_config.py가 그 import를
-# 모듈 맨 위가 아니라 함수 안에 지연시켜 두므로, 이 파일이 gate_config.py보다
-# 나중에 로드되는 순서(아래)뿐 아니라 먼저 로드되는 순서(gate_config.py를
-# 다른 스크립트가 먼저 불렀을 때)도 안전하다.
-from ai_harness.gate_config import (  # noqa: E402
-    EXEMPT_SECTIONS,
-    JARGON_TERMS,
-    RULE_REVIEW_EVIDENCE,
-    build_exempt_shape,
-    rule_cite as _rule_cite,
-)
 
 _EXEMPT_SHAPE = build_exempt_shape()
 
