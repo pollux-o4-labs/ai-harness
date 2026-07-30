@@ -19,8 +19,8 @@ org PR 템플릿의 `## 확인` 체크리스트를 손으로 `check_pr_body.py`�
 REQUIRED_CHECKS 하나).
 
 사용:
-  ai-harness gen-pr-template           # 생성해서 .github/PULL_REQUEST_TEMPLATE.md에 쓴다
-  ai-harness gen-pr-template --check   # 드라이런: 생성물 ≠ 현재 파일이면 비영 종료
+  ai-harness gen-pr-template                 # 생성해서 .github/PULL_REQUEST_TEMPLATE.md에 쓴다
+  ai-harness gen-pr-template --check         # 드라이런: 생성물 ≠ 현재 파일이면 비영 종료
 """
 from __future__ import annotations
 
