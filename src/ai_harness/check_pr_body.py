@@ -10,7 +10,7 @@
 conventional-commit 형식(`check_pr_title`, S5).
 
 **create와 merge의 차이(확인 체크리스트)**: create는 리뷰 요청 시점이라 리뷰어가
-아직 체크를 못 했다 — 형식(섹션·분량·은어·문장·제목)만 강제하고 확인 절은 '존재'만
+아직 체크를 못 했다 — 형식(섹션·분량·문장·제목)만 강제하고 확인 절은 '존재'만
 본다. merge는 리뷰가 끝난 뒤라 확인 절 '전량 체크'까지 요구한다. 이러면 "PR
 올려 리뷰받고 → 리뷰어가 체크 → 머지"가 성립한다.
 
@@ -40,17 +40,15 @@ merge` 훅 경로도 이 코멘트 존재·신선도 검사를 같이 태운다(
 **`gh pr comment`는 다른 검사를 받는다.** 코멘트는 리뷰 항목별 근거 기록이지
 PR 본문이 아니다 — 섹션 골격(요약/변경/범위 밖/검증)·체크리스트는 적용하지
 않는다. 대신 그 코멘트 자체가 나중에 읽어야 할 근거 문서가 되므로 분량·문장
-구조는 그대로 강제하고(`docs_format/pr-comment.md`의 줄수·줄자수 예산),
-내부 용어 풀이(`JARGON_TERMS`)도 그대로 적용한다 — 체크리스트의 은어 검수
-항목은 "PR에 작성된 글" 전체가 대상이고 코멘트도 그 글이기 때문이다.
+구조는 그대로 강제한다(`docs_format/pr-comment.md`의 줄수·줄자수 예산).
 
-  gh pr create    섹션·예산·용어·체크절(존재만)·제목(conventional-commit)
+  gh pr create    섹션·예산·체크절(존재만)·제목(conventional-commit)
   gh pr merge     위 + 체크 전량(제목은 이미 만들어진 PR을 가리킬 뿐이라 검사 안 함)
-  gh pr comment   줄자수·줄수 예산 + 한 줄 한 문장 + 용어 풀이(섹션·체크리스트 없음)
+  gh pr comment   줄자수·줄수 예산 + 한 줄 한 문장(섹션·체크리스트 없음)
 
 (comment 예산 수치는 `docs_format/pr-comment.md`가 정본 — 여기 재서술 안 함.)
 
-**레포별 설정은 `gate_config.py`에 있다** — 은어 목록·면제 섹션·규칙 인용처럼
+**레포별 설정은 `gate_config.py`에 있다** — 면제 섹션·규칙 인용처럼
 저장소마다 달라야 하는 값은 이 core에 안 둔다. core는 설치된 패키지 하나가
 정본이고, 대상 저장소는 자기 `gate_config.py`만 두면 CLI가 그 값을 얹는다.
 """
@@ -63,10 +61,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-# 레포별 설정(은어 목록·면제 섹션·규칙 인용) — 대상 저장소가 값을 오버레이한다.
+# 레포별 설정(면제 섹션·규칙 인용) — 대상 저장소가 값을 오버레이한다.
 from ai_harness.gate_config import (
     EXEMPT_SECTIONS,
-    JARGON_TERMS,
     RULE_REVIEW_EVIDENCE,
     build_exempt_shape,
     rule_cite as _rule_cite,
@@ -144,7 +141,6 @@ _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _H2 = re.compile(r"^##\s+(.+?)\s*$")
 _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
-_GLOSS_AFTER = re.compile(r"^\s*[(（]")
 # 코멘트 줄 검사용 펜스 토글 — check_doc_form.py의 _FENCE와 같은 정규식이지만
 # 위와 같은 이유(격리 설계)로 복제한다.
 _FENCE_LINE = re.compile(r"^\s*```")
@@ -163,27 +159,10 @@ def measure(text: str) -> int:
 
 
 def strip_code(text: str) -> str:
-    """코드펜스·인라인코드 제거 — 은어 검사 대상은 산문이지 명령어가 아니다.
+    """코드펜스·인라인코드 제거 — 판정 대상은 산문이지 명령어가 아니다.
     (분량 예산은 반대로 코드까지 센다 — 로그를 붙일 자리가 아니라 명령+종료코드
     자리이므로 예산 안에 들어와야 한다.)"""
     return _INLINE_CODE.sub("", _FENCED_CODE.sub("", text))
-
-
-def check_jargon(body: str) -> list[str]:
-    """내부 용어의 첫 등장에 괄호 풀이가 붙었는지 검사한다."""
-    text = strip_code(strip_html_comments(body))
-    violations: list[str] = []
-    for term in JARGON_TERMS:
-        idx = text.find(term)
-        if idx == -1:
-            continue
-        if not _GLOSS_AFTER.match(text[idx + len(term):]):
-            violations.append(
-                f"내부 용어 '{term}'에 풀이가 없음 — 첫 등장을 "
-                f"'{term}(쉬운 말 설명)' 형태로 풀어라. 배경지식 없는 "
-                f"제3자가 한 번에 읽어야 한다."
-            )
-    return violations
 
 
 def parse_sections(body: str) -> dict[str, str]:
@@ -264,7 +243,7 @@ def check_exempt_shape(sections: dict[str, str]) -> list[str]:
         if name not in sections:
             continue
         # strip_code를 쓰면 안 된다 — 코드펜스·백틱으로 감싼 산문이 **사라져서**
-        # 섹션이 비어 보이고 그대로 통과한다(자가 공격으로 실측한 우회구). 은어·문장
+        # 섹션이 비어 보이고 그대로 통과한다(자가 공격으로 실측한 우회구). 문장
         # 검사는 "코드는 산문이 아니다"라 벗겨내는 게 맞지만, 형태 검사는 반대다 —
         # 코드펜스 줄 자체가 이 섹션에 올 수 없는 형태이므로 그대로 봐야 잡는다.
         # HTML 주석만 벗긴다(렌더링되지 않아 독자에게 안 보이므로 내용이 아니다).
@@ -287,7 +266,7 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
 
     require_checklist_complete=False(PR 생성 시점)면 확인 절 '존재'만 보고 '모든
     항목 체크'는 요구하지 않는다 — 리뷰 전이라 리뷰어가 아직 못 채운다. 머지
-    시점은 True로 전량 체크를 요구한다(리뷰 끝난 뒤). 형식(섹션·분량·은어·문장)은
+    시점은 True로 전량 체크를 요구한다(리뷰 끝난 뒤). 형식(섹션·분량·문장)은
     두 시점 다 강제한다."""
     sections = parse_sections(body)
     violations: list[str] = []
@@ -324,7 +303,6 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
             f"템플릿에 없는 섹션: {', '.join(unknown)} — "
             f"허용 섹션은 {', '.join(sorted(allowed))} 뿐이다."
         )
-    violations.extend(check_jargon(body))
     return violations
 
 
@@ -332,8 +310,7 @@ def check_pr_body(body: str, require_checklist_complete: bool = True) -> list[st
 #
 # 코멘트는 PR 본문이 아니라 리뷰 항목별 근거 기록이다 — 섹션 골격·체크리스트는
 # 적용하지 않는다. 단, 그 코멘트도 나중에 읽어야 할 문서가 되므로 분량·문장
-# 구조는 그대로 강제하고, 내부 용어 풀이도 그대로 적용한다(체크리스트의 은어
-# 검수 항목이 "PR에 작성된 글" 전체를 대상으로 하고 코멘트도 그 글이다).
+# 구조는 그대로 강제한다. 내부 용어가 과한지는 리뷰어가 본다(규칙 01 제3조).
 
 def _read_comment_form_text() -> str | None:
     """코멘트 폼(pr-comment.md, core 번들) 텍스트 — 없으면 None. 예산·헤더·골격
@@ -406,7 +383,7 @@ def check_comment(body: str) -> list[str]:
 
     섹션 골격(요약/변경/범위 밖/검증)·체크리스트는 검사하지 않는다 — 코멘트는
     PR 본문이 아니다. 강제하는 축은 분량(줄수·줄자수)·문장 구조(한 줄 한
-    문장)·내부 용어 풀이(JARGON_TERMS, check_jargon 재사용)뿐이다. **닫힌**
+    문장)뿐이다 — 내부 용어 판정은 리뷰어 몫이다(규칙 01 제3조). **닫힌**
     코드펜스 쌍 안만 줄자수·문장 검사에서 면제한다 — 명령·출력 인용은 쪼개면
     깨진다. 안 닫힌 펜스는 면제하지 않는다(fail-closed, HIGH-1) — 닫혔는지
     가드가 없으면 펜스를 열기만 하고 안 닫는 것으로 이 게이트를 통째로
@@ -461,7 +438,6 @@ def check_comment(body: str) -> list[str]:
                 f"흐름을 우겨넣지 말고 함축해라(문맥이 이어지면 문맥 단위로 나눈다)."
             )
 
-    violations.extend(check_jargon(body))
     # 리뷰 종합 코멘트면 폼 골격(필수 섹션·등급 라벨)까지 강제한다 — 일반
     # 코멘트엔 no-op. 존재·신선도는 check_review_evidence(머지), 골격은 여기(게시).
     violations.extend(check_review_skeleton(body))
@@ -557,7 +533,7 @@ def _report(violations: list[str], body: str) -> None:
     print(
         # 처방은 실재하는 것만 가리킨다 — 없는 문서로 보내면 저자는 고칠 길을 잃고
         # 게이트를 지운다. 섹션·예산의 정본은 이 스크립트이므로 템플릿만 가리킨다.
-        "\n형식: .github/PULL_REQUEST_TEMPLATE.md (섹션·예산·형태·용어의 정본은 이 스크립트)",
+        "\n형식: .github/PULL_REQUEST_TEMPLATE.md (섹션·예산·형태의 정본은 이 스크립트)",
         file=sys.stderr,
     )
 
@@ -749,7 +725,7 @@ def extract_body_from_comment_command(command: str) -> tuple[str | None, str | N
 # 짓지 않고(그 PR을 만든 create가 이미 검사받았다), comment는 애초에 제목이
 # 없다. 그래서 body/comment/merge 어느 검사기와도 안 겹친다.
 
-# 닫힌 집합이다 — EXEMPT_SECTIONS·JARGON_TERMS와 달리 저장소마다 다른 값이
+# 닫힌 집합이다 — EXEMPT_SECTIONS와 달리 저장소마다 다른 값이
 # 아니라 conventional commit 표준 자체가 정의하는 타입이라 gate_config.py(레포별
 # 설정)로 안 뽑는다. 새 타입이 필요하면 표준이 바뀐 것이므로 core를 고친다.
 CONVENTIONAL_COMMIT_TYPES: tuple[str, ...] = (

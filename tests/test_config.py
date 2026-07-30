@@ -20,10 +20,10 @@ import ai_harness.gate_config as gate_config
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _VENV_BIN = str(Path(sys.executable).parent)
 
-_GOOD_BODY_WITH_JARGON = """\
+_GOOD_BODY = """\
 ## 요약
 
-좀비모드로 PR 본문에 게이트를 건다.
+PR 본문에 게이트를 건다.
 
 ## 변경 유형
 
@@ -98,16 +98,16 @@ def test_load_returns_bundled_when_no_config(tmp_path, monkeypatch):
 
 def test_load_reads_target_config(tmp_path, monkeypatch):
     _init_repo(tmp_path)
-    (tmp_path / "gate_config.py").write_text('JARGON_TERMS = ("특수용어",)\n', encoding="utf-8")
+    (tmp_path / "gate_config.py").write_text('EXEMPT_SECTIONS = ("부록",)\n', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     mod = config.load_target_config()
     assert mod is not gate_config
-    assert mod.JARGON_TERMS == ("특수용어",)
+    assert mod.EXEMPT_SECTIONS == ("부록",)
 
 
 def test_load_malformed_config_exits_with_message_not_traceback(tmp_path, monkeypatch):
     _init_repo(tmp_path)
-    (tmp_path / "gate_config.py").write_text("JARGON_TERMS = (  # 닫는 괄호 없음\n", encoding="utf-8")
+    (tmp_path / "gate_config.py").write_text("EXEMPT_SECTIONS = (  # 닫는 괄호 없음\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(SystemExit) as ei:
         config.load_target_config()
@@ -124,7 +124,7 @@ def test_apply_bundled_returns_disabled_gates(tmp_path, monkeypatch):
 def test_apply_guard_fires_when_consumer_already_imported(tmp_path, monkeypatch):
     import ai_harness.check_pr_body  # noqa: F401  (sys.modules에 확실히 올림)
     _init_repo(tmp_path)
-    (tmp_path / "gate_config.py").write_text('JARGON_TERMS = ("특수용어",)\n', encoding="utf-8")
+    (tmp_path / "gate_config.py").write_text('EXEMPT_SECTIONS = ("부록",)\n', encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     with pytest.raises(RuntimeError, match="프로세스당 1회"):
         config.apply_target_config()
@@ -137,15 +137,33 @@ def _run_cli(repo: Path, *args: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True)
 
 
-def test_overlay_applies_target_jargon_via_subprocess(tmp_path):
-    repo = tmp_path / "repo"
-    _init_repo(repo)
-    (repo / "gate_config.py").write_text('JARGON_TERMS = ("좀비모드",)\n', encoding="utf-8")
-    body = repo / "body.md"
-    body.write_text(_GOOD_BODY_WITH_JARGON, encoding="utf-8")
-    r = _run_cli(repo, "check-pr", "--body-file", str(body))
-    assert r.returncode != 0
-    assert "좀비모드" in r.stdout + r.stderr
+def test_overlay_applies_target_value_via_subprocess(tmp_path):
+    """대상 저장소 값이 실제로 얹히는지 — 허용 섹션 목록으로 양방향 확인한다.
+
+    예시를 은어 목록에서 면제 섹션으로 갈았다. 은어 게이트는 걷어냈기 때문이며
+    (어휘는 목록으로 쫓을 수 없어 리뷰어 몫), 검증하려는 것은 오버레이 경로
+    자체이지 어느 값인지가 아니다. 한쪽만 보면 "원래 통과였다"와 구분이 안
+    되므로, core에서 리젝되는 본문이 대상 값에서 통과하는 것을 같이 본다.
+    """
+    with_extra = _GOOD_BODY.replace(
+        "## 확인", "## 부록\n\n- [x] 덧붙일 것.\n\n## 확인")
+
+    core = tmp_path / "core"
+    _init_repo(core)
+    body = core / "body.md"
+    body.write_text(with_extra, encoding="utf-8")
+    r_core = _run_cli(core, "check-pr", "--body-file", str(body))
+    assert r_core.returncode != 0, "core 기본값엔 '부록'이 없어 미지 섹션 리젝이어야 한다"
+    assert "부록" in r_core.stdout + r_core.stderr
+
+    target = tmp_path / "target"
+    _init_repo(target)
+    (target / "gate_config.py").write_text(
+        'EXEMPT_SECTIONS = ("변경 유형", "관련 이슈", "부록")\n', encoding="utf-8")
+    body2 = target / "body.md"
+    body2.write_text(with_extra, encoding="utf-8")
+    r_target = _run_cli(target, "check-pr", "--body-file", str(body2))
+    assert r_target.returncode == 0, r_target.stdout + r_target.stderr
 
 
 def test_disabled_gate_is_noop_via_subprocess(tmp_path):
@@ -160,7 +178,7 @@ def test_disabled_gate_is_noop_via_subprocess(tmp_path):
 def test_malformed_config_no_raw_traceback_via_subprocess(tmp_path):
     repo = tmp_path / "repo"
     _init_repo(repo)
-    (repo / "gate_config.py").write_text("JARGON_TERMS = (  # 오타\n", encoding="utf-8")
+    (repo / "gate_config.py").write_text("EXEMPT_SECTIONS = (  # 오타\n", encoding="utf-8")
     body = repo / "b.md"
     body.write_text("x\n", encoding="utf-8")
     r = _run_cli(repo, "check-pr", "--body-file", str(body))

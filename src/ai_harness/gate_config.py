@@ -3,7 +3,7 @@
 """게이트 설정 — repo별 특화 지점.
 
 `check_pr_body.py`·`check_doc_form.py`·`gen_readmes.py`(core)는 이 저장소든
-다른 저장소든 로직이 같아야 한다 — 대상 저장소에 맞출 값(은어 목록·면제 섹션·
+다른 저장소든 로직이 같아야 한다 — 대상 저장소에 맞출 값(면제 섹션·
 규칙 문서 인용)은 전부 이 파일로 뽑는다. 이러면 core는 설치된 패키지 하나가
 정본이고, 각 저장소는 자기 `gate_config.py`만 두면 CLI가 그 값을 얹는다.
 
@@ -30,7 +30,6 @@ from ai_harness.line_shapes import CHECKLIST_SECTION, is_checkbox_line, is_issue
 # line_shapes.py에서 온 재노출이라 여기 안 넣는다(이 모듈이 낳은 값이 아니다).
 __all__ = (
     "DISABLED_GATES",
-    "JARGON_TERMS",
     "EXTRA_AUTOGEN_MARKERS",
     "EXEMPT_SECTIONS",
     "build_exempt_shape",
@@ -44,15 +43,6 @@ __all__ = (
 # 맞지 않는 저장소만 여기서 예외로 끈다(opt-out). CLI 디스패처가 대상 저장소의
 # 이 값을 읽어 해당 게이트를 no-op 처리한다.
 DISABLED_GATES: tuple[str, ...] = ()
-
-# 제3자가 한 번에 못 읽는 그 저장소의 내부 용어 — 첫 등장에 괄호 풀이를 요구한다
-# (금지가 아니다. 그 용어가 주제인 PR을 못 쓰게 되면 게이트가 꺼진다).
-# **완결 목록이 아니라 상습범 목록이다** — 여기 없는 은어가 통과하는 게 정상이고,
-# 일반적 가독성은 리뷰어 판정에 남는다. 새 상습범은 관측되는 대로 여기 추가한다
-# (목록은 바닥이지 증명이 아니다).
-# **비어 있는 게 기본이다** — core는 어느 저장소의 은어도 모른다. consumer가
-# 자기 저장소 은어를 채운다(상습범만).
-JARGON_TERMS: tuple[str, ...] = ()
 
 # check_doc_form.py의 자동생성 블록 마커 — core는 `BLUF-INDEX`(gen_readmes.py
 # 롤업) 하나만 안다. 저장소가 자체 멱등 splice 도구(예: 온보딩 스크립트)를
