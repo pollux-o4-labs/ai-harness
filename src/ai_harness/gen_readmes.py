@@ -578,8 +578,8 @@ def _print_summary(
             print(f"    ? {rel(p) if p != root else '.'}")
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="BLUF 기반 README 자동 생성기")
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
+    ap = argparse.ArgumentParser(prog=prog, description="BLUF 기반 README 자동 생성기")
     ap.add_argument("--check", action="store_true",
                     help="드라이런: 변경 필요/누락 BLUF가 있으면 비영 종료(파일 미수정)")
     ap.add_argument("--root", default=None,

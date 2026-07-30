@@ -71,8 +71,8 @@ def install_rules(user: bool = False) -> int:
     return len(rules)
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="공용 규칙 조문 설치기")
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
+    ap = argparse.ArgumentParser(prog=prog, description="공용 규칙 조문 설치기")
     ap.add_argument(
         "--user", action="store_true",
         help="~/.claude/rules/(그 머신의 모든 저장소)에 설치. 미지정 시 대상 저장소.",

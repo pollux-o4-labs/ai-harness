@@ -77,7 +77,13 @@ def main(argv: list[str] | None = None) -> int:
 
     if cmd in _MODULE_BY_COMMAND:
         module = importlib.import_module(_MODULE_BY_COMMAND[cmd])
-        return module.main(rest)
+        # 도움말 usage 줄에 쓸 이름을 인자로 넘긴다 — 안 넘기면 argparse가 실행
+        # 경로 파일명을 써서 어느 서브커맨드인지 사라진다. 이름의 정본은 위 테이블
+        # 하나이고 모듈은 받은 값을 쓸 뿐이라 재서술이 안 생긴다.
+        # **전역(sys.argv)을 거치지 않는다** — 이 저장소는 인자를 전역으로 넘기던
+        # 우회를 이미 걷어냈고(진입점이 argv를 파라미터로 받게 바꾼 그 변경),
+        # 같은 계약을 이름에도 그대로 적용한다.
+        return module.main(rest, prog=f"ai-harness {cmd}")
 
     print(f"[ai-harness] 알 수 없는 명령: {cmd}\n\n{_USAGE}", file=sys.stderr)
     return 2
