@@ -37,3 +37,14 @@
 검증 명령은 [README.md](README.md)의 검증 절이 정본이다.
 
 게이트를 고쳤으면 이 저장소 자신에게도 돌려 통과를 확인한다(도그푸딩).
+
+그러려면 로컬 소스에서 CLI를 다시 깔아야 한다 — `--force`가 아니라
+`--reinstall`이다.
+
+```bash
+uv tool install --reinstall .   # 로컬 소스 갱신
+ai-harness install-hooks        # 새 훅을 .git/hooks/로
+```
+
+`--force`는 버전이 같으면 캐시를 재사용하면서 종료코드 0을 낸다 —
+[사건 기록](docs/history/B-local-path-tool-install-serves-cached-build.md).
