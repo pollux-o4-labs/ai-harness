@@ -604,8 +604,31 @@ def check_staged(path: Path, old_path: Path | None = None) -> list[str]:
     return kept
 
 
-def main(argv: list[str] | None = None) -> int:
+def _print_help(prog: str | None = None) -> None:
+    """`-h`/`--help` 출력 — 이 모듈은 argparse를 안 쓰므로(수기 파싱) 도움말도
+    손으로 찍는다. 이름은 호출자가 넘긴 값을 쓰고, 없으면 argparse와 같은
+    기본값 규칙(실행 경로의 파일명)으로 떨어진다 — 이름을 여기 재서술하지
+    않으면서 전역 상태에도 기대지 않는다."""
+    prog = prog or Path(sys.argv[0]).name
+    print(f"usage: {prog} [-h] [--staged] [FILE ...]")
+    print()
+    print("문서 폼(줄 예산) 게이트 — 변경된 .md가 유형별 폼(docs_format/*.md)의")
+    print("줄 예산을 지키는지 검사한다(exit 1 = 위반).")
+    print()
+    print("positional arguments:")
+    print("  FILE        검사할 .md 파일 경로(0개면 대상 없음)")
+    print()
+    print("options:")
+    print("  -h, --help  도움말 출력 후 종료")
+    print("  --staged    스테이징된 .md만 검사(pre-commit 모드)")
+
+
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
+
+    if "-h" in args or "--help" in args:
+        _print_help(prog)
+        return 0
 
     violations: list[str] = []
     if "--staged" in args:
