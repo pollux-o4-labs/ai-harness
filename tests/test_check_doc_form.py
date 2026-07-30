@@ -1074,3 +1074,35 @@ def test_horizontal_rule_does_not_open_frontmatter(real_forms):
         + ("가" * 200) + "\n",
     )
     assert any("자 > " in v for v in cdf.check_file(doc))
+
+
+def test_folded_bluf_rejected(real_forms):
+    """BLUF를 다음 줄로 접으면 리젝해야 한다.
+
+    회귀(실사고): `docs/history/B-local-path-tool-install-serves-cached-build.md`가
+    BLUF를 2줄로 써서 통과했고, gen_readmes가 첫 줄만 뽑아 인덱스에 끊긴 문장을
+    박았다. 길이도 문장수도 안 걸리는 형태라 접기 자체를 형식으로 잡는다.
+    """
+    doc = _write_doc(
+        "docs/history/B-x.md",
+        "> **BLUF:** 앞부분이다\n> 뒷부분이라 인덱스에서 잘린다.\n",
+    )
+    violations = cdf.check_file(doc)
+    assert any("다음 줄로 이어진다" in v for v in violations), violations
+
+
+def test_single_line_bluf_passes(real_forms):
+    doc = _write_doc("docs/history/B-x.md", "> **BLUF:** 한 줄로 끝낸다.\n")
+    assert cdf.check_file(doc) == []
+
+
+def test_quote_block_after_blank_line_not_flagged_as_folded_bluf(real_forms):
+    """BLUF와 떨어져 있는 인용문단은 접기가 아니다 — 바로 다음 줄만 본다.
+
+    이걸 안 가르면 인용을 쓰는 모든 문서가 오탐 리젝된다(과잉 차단).
+    """
+    doc = _write_doc(
+        "docs/history/B-x.md",
+        "> **BLUF:** 한 줄로 끝낸다.\n\n## B (하지 말 것)\n\n> 인용이다.\n",
+    )
+    assert cdf.check_file(doc) == []

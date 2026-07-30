@@ -86,6 +86,11 @@ WHITELIST: frozenset[str] = frozenset()
 FORBIDDEN_REFS: frozenset[tuple[str, str]] = frozenset()
 
 _BLUF = re.compile(r"^>\s*\*\*BLUF:\*\*\s*")
+# BLUF 바로 다음의 인용 계속 줄. 폼이 "BLUF 한 줄"이라 접기는 위반인데, 그 위반이
+# 조용히 지나가면 gen_readmes가 첫 줄만 뽑아 인덱스에 **끊긴 문장**을 박는다
+# (실측: docs/history/B-local-path-tool-install-serves-cached-build.md). 길이도
+# 문장수도 안 걸리는 형태라 여기서 형식으로 직접 잡는다.
+_BLUF_CONT = re.compile(r"^>\s*\S")
 _FENCE = re.compile(r"^\s*```")
 _TABLE_ROW = re.compile(r"^\s*\|")
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
@@ -403,6 +408,7 @@ def _check_content(path: Path, text: str) -> list[str]:
             f"그다음 함축하고, 그래도 넘으면 docs/history로 내려라."
         )
 
+    bluf_lineno: int | None = None  # 직전에 본 BLUF 줄번호(접기 판정용).
     for i, line in _iter_checkable_lines(lines):
         # BLUF 줄은 BLUF 예산으로만 잰다. 산문 상한으로 또 재면 폼이 허용한
         # 길이를 쓸 수 없고(rules는 BLUF 100자 > 산문 80자), 상한을 안 건
@@ -414,7 +420,19 @@ def _check_content(path: Path, text: str) -> list[str]:
                     f"{path}:{i}: BLUF {len(body)}자 > {bluf_max}자 — "
                     f"요약 자리에 문단을 넣지 마라."
                 )
+            bluf_lineno = i
             continue
+
+        # BLUF를 다음 줄로 접으면 뒷부분이 인덱스에서 잘려나간다. **바로 다음
+        # 줄**만 본다 — 사이에 걸러진 줄이 있으면 줄번호가 안 이어지므로
+        # 인용문단(> …)이 뒤에 따로 오는 문서를 오탐하지 않는다.
+        if bluf_lineno is not None and i == bluf_lineno + 1 and _BLUF_CONT.match(line):
+            violations.append(
+                f"{path}:{i}: BLUF가 다음 줄로 이어진다 — 한 줄로 함축하라"
+                f"(BLUF 상한 {bluf_max or '?'}자는 산문 상한보다 넉넉하다). "
+                f"접으면 인덱스에 첫 줄만 실려 문장이 끊긴다."
+            )
+        bluf_lineno = None
 
         # 검증 참조 스팬은 길이에서 뺀다 — 함수명이라 못 쪼갠다. 남은 산문은
         # 여전히 상한을 진다(참조만 길고 서술은 짧으면 통과, 서술이 길면 리젝).

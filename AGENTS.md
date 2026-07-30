@@ -34,7 +34,9 @@
 
 ## 검증
 
-검증 명령은 [README.md](README.md)의 검증 절이 정본이다.
+검증 **명령**은 [README.md](README.md)의 검증 절이 정본이다.
+
+아래는 그 명령이 아니라, 그 검증이 유효하려면 먼저 해야 할 일이다.
 
 게이트를 고쳤으면 이 저장소 자신에게도 돌려 통과를 확인한다(도그푸딩).
 
@@ -45,6 +47,9 @@
 uv tool install --reinstall .   # 로컬 소스 갱신
 ai-harness install-hooks        # 새 훅을 .git/hooks/로
 ```
+
+잊어도 `uv run pytest`가 설치본과 소스를 대조해 잡는다 — 이 줄은 처방일 뿐
+정본은 그 테스트다.
 
 `--force`는 버전이 같으면 캐시를 재사용하면서 종료코드 0을 낸다 —
 [사건 기록](docs/history/B-local-path-tool-install-serves-cached-build.md).
