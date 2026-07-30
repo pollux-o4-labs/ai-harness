@@ -60,8 +60,8 @@ def install_agents(user: bool = False) -> int:
     return installed
 
 
-def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="리뷰어 에이전트 템플릿 설치기")
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
+    ap = argparse.ArgumentParser(prog=prog, description="리뷰어 에이전트 템플릿 설치기")
     ap.add_argument(
         "--user", action="store_true",
         help="~/.claude/agents/(모든 저장소 공용)에 설치. 미지정 시 대상 저장소 .claude/agents/.",

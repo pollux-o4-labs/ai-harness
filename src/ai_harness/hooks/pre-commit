@@ -23,8 +23,9 @@ cd "$repo_root"
 
 ai-harness check-doc --staged
 
-# 종료코드로 경우를 가른다. 2(블록 안 손글씨)는 gen-readmes가 이미 처방까지
-# 출력하므로 여기서 또 말하지 않는다 — 같은 규범을 두 곳에 두면 갈라진다.
+# 종료코드로 경우를 가른다. 1(인덱스 어긋남)에만 여기서 처방을 덧붙이고, 나머지
+# 비영 코드(손글씨·마커 중복·쓰기 실패)는 gen-readmes가 이미 처방까지 출력하므로
+# 그대로 통과시킨다 — 같은 규범을 두 곳에 두면 갈라진다.
 ai-harness gen-readmes --check || rc=$?
 if [ "${rc:-0}" -eq 1 ]; then
     cat >&2 <<'MSG'

@@ -75,10 +75,10 @@ def install_hooks() -> int:
     return installed
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     import argparse
 
-    ap = argparse.ArgumentParser(description="git 훅 설치기")
+    ap = argparse.ArgumentParser(prog=prog, description="git 훅 설치기")
     ap.parse_args(argv)
 
     install_hooks()

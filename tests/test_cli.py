@@ -9,6 +9,8 @@ DB도 LLM(언어모델)도 안 쓴다.
 """
 from __future__ import annotations
 
+import sys
+
 import importlib
 
 import pytest
@@ -43,3 +45,40 @@ def test_unknown_command_exits_two():
 def test_help_exits_zero():
     assert cli.main(["--help"]) == 0
     assert cli.main([]) == 0
+
+
+@pytest.mark.parametrize("name", sorted(cli._MODULE_BY_COMMAND))
+def test_subcommand_help_usage_shows_its_own_name(name, capsys):
+    """서브커맨드 `--help`의 usage 줄에 그 서브커맨드 이름이 실제로 나온다.
+
+    이름의 정본은 `cli._COMMANDS` 하나뿐이다(모듈은 재서술하지 않는다) —
+    디스패치가 그 이름을 `prog` 인자로 넘기고 각 진입점이 받아 쓴다(argparse
+    미사용인 check-doc도 같은 인자를 받아 자기 도움말에 찍는다).
+    argparse는 `-h`에서 `SystemExit(0)`을 던지므로 그걸 받아준다."""
+    try:
+        rc = cli.main([name, "--help"])
+    except SystemExit as e:
+        rc = e.code
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert f"ai-harness {name}" in out, f"{name} --help usage에 이름이 안 보임: {out!r}"
+
+
+def test_dispatch_does_not_touch_global_argv(monkeypatch, capsys):
+    """디스패치가 전역 인자를 아예 건드리지 않는다.
+
+    이름은 파라미터로 넘긴다 — 전역에 써 놓고 되돌리는 방식은 이 저장소가
+    이미 걷어낸 우회이고, 되돌리기를 빠뜨리면 조용히 오염이 남는다.
+    건드리지 않으면 되돌릴 것도 없다.
+
+    정상 종료와 도움말(SystemExit) 두 경로를 다 본다."""
+    original = ["/원래/자리/에서-부른-것", "무시되는-인자"]
+    monkeypatch.setattr(sys, "argv", list(original))
+
+    assert cli.main(["gen-pr-template", "--check"]) == 0
+    assert sys.argv == original, "정상 종료 경로에서 전역 인자가 바뀌었다"
+
+    with pytest.raises(SystemExit):
+        cli.main(["check-pr", "--help"])
+    capsys.readouterr()
+    assert sys.argv == original, "도움말 경로에서 전역 인자가 바뀌었다"

@@ -76,6 +76,13 @@ _CHECK_HIERARCHY: tuple[tuple[int, tuple[int, ...]], ...] = (
 
 TEMPLATE_RELPATH = Path(".github") / "PULL_REQUEST_TEMPLATE.md"
 
+# 종료코드 — gen_readmes.py의 DRIFT(=1) 패턴과 같은 값·같은 뜻이다: 생성물이
+# 현재 상태와 다르다(파일이 아예 없는 것도 "생성물과 다름"의 한 형태로 본다).
+# 이 모듈 스스로 "gen_readmes --check와 같은 패턴"이라 밝히면서 정작 `return 1`을
+# 두 곳에 매직넘버로 박아 뒀던 자기일관성 문제를 여기서 바로잡는다(값은 그대로
+# 1 — 동작 변경 없음).
+DRIFT = 1
+
 
 def _render_checklist() -> list[str]:
     """`## 확인` 체크박스 줄을 REQUIRED_CHECKS + `_CHECK_HIERARCHY`에서 렌더한다.
@@ -162,8 +169,9 @@ def _report_diff(current: str, generated: str, path: Path) -> None:
     sys.stderr.writelines(diff)
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     ap = argparse.ArgumentParser(
+        prog=prog,
         description="PR 템플릿 생성기(check_pr_body.REQUIRED_CHECKS 등에서 파생)"
     )
     ap.add_argument("--check", action="store_true",
@@ -182,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"[gen_pr_template] {target} 없음 — `ai-harness gen-pr-template`로 생성하라.",
                 file=sys.stderr,
             )
-            return 1
+            return DRIFT
         current = target.read_text(encoding="utf-8")
         if current != generated:
             print(
@@ -191,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             _report_diff(current, generated, target)
-            return 1
+            return DRIFT
         print(f"[gen_pr_template] {target} 최신.")
         return 0
 

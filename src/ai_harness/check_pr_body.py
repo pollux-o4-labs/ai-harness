@@ -1099,10 +1099,10 @@ def run_merge_check(identifier: str) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     import argparse
 
-    ap = argparse.ArgumentParser(description="PR 본문 구조·분량 게이트")
+    ap = argparse.ArgumentParser(prog=prog, description="PR 본문 구조·분량 게이트")
     ap.add_argument("--body-file", type=Path, help="검사할 PR 본문 파일")
     ap.add_argument("--hook", action="store_true",
                     help="Claude Code PreToolUse 훅 모드(stdin=훅 JSON)")
