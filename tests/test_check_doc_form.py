@@ -754,6 +754,34 @@ def test_whitelist_defaults_to_empty():
     assert cdf.WHITELIST == frozenset()
 
 
+def test_extra_whitelist_path_is_exempt(real_forms, monkeypatch):
+    """gate_config.EXTRA_WHITELIST에 등재된 경로도 면제된다 — 대상 저장소가
+    자기 gate_config.py에 등재하는 통로가 실제로 판정에 반영되는지 본다."""
+    doc = _write_doc("docs/rules/x.md", ("가" * 200) + "\n")
+    assert cdf.check_file(doc) != []  # 등재 전엔 리젝됨을 먼저 확인
+    monkeypatch.setattr(cdf, "EXTRA_WHITELIST", frozenset({doc.as_posix()}))
+    assert cdf.check_file(doc) == []
+
+
+def test_whitelist_and_extra_whitelist_are_a_union(real_forms, monkeypatch):
+    """WHITELIST·EXTRA_WHITELIST 어느 쪽에 등재돼도 면제된다(합집합) — 등재
+    안 된 경로는 여전히 리젝된다."""
+    listed_a = _write_doc("docs/rules/a.md", ("가" * 200) + "\n")
+    listed_b = _write_doc("docs/rules/b.md", ("나" * 200) + "\n")
+    unlisted = _write_doc("docs/rules/c.md", ("다" * 200) + "\n")
+    monkeypatch.setattr(cdf, "WHITELIST", frozenset({listed_a.as_posix()}))
+    monkeypatch.setattr(cdf, "EXTRA_WHITELIST", frozenset({listed_b.as_posix()}))
+    assert cdf.check_file(listed_a) == []
+    assert cdf.check_file(listed_b) == []
+    assert cdf.check_file(unlisted) != []
+
+
+def test_extra_whitelist_defaults_to_empty():
+    """EXTRA_WHITELIST도 WHITELIST와 같이 비어 있는 게 기본 — 대상 저장소가
+    등재하지 않으면 core 판정에 아무 영향이 없다."""
+    assert cdf.EXTRA_WHITELIST == frozenset()
+
+
 # --- 유형 판정 · 폼 없는 유형의 fallback --------------------------------------
 
 def test_type_without_own_form_falls_back_to_global(real_forms):
@@ -955,6 +983,53 @@ def test_staged_rejects_when_staged_md_violates(tmp_path):
 
     result = _run_staged(repo)
     assert result.returncode == 1
+
+
+def test_staged_extra_whitelist_path_is_exempt(tmp_path):
+    """--staged 경로(check_staged)도 check_file과 같은 합집합을 본다 —
+    EXTRA_WHITELIST가 두 사용처 중 한쪽에서만 빠지는 회귀를 잡는다."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _copy_forms(repo)
+    (repo / "docs" / "rules").mkdir(parents=True)
+    (repo / "docs" / "rules" / "bad.md").write_text(("가" * 200) + "\n", encoding="utf-8")
+    _git(repo, "add", "docs/rules/bad.md")
+    (repo / "gate_config.py").write_text(
+        'EXTRA_WHITELIST = frozenset({"docs/rules/bad.md"})\n', encoding="utf-8"
+    )
+
+    result = _run_staged(repo)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_overlay_extra_whitelist_applies_via_subprocess(tmp_path):
+    """오버레이 경로 자체(config.py가 EXTRA_WHITELIST를 실제로 읽는가)를 본다.
+
+    in-process monkeypatch는 check_doc_form이 이미 임포트된 뒤라 config.py의
+    오버레이(`apply_target_config`)를 실행하지 못한다(프로세스당-1회 가드,
+    tests/test_config.py 참고) — 그래서 설치된 CLI를 서브프로세스로 돌려
+    gate_config.py 파일이 실제로 로드·오버레이되는 경로를 검증한다."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _copy_forms(repo)
+    (repo / "docs" / "rules").mkdir(parents=True)
+    bad = repo / "docs" / "rules" / "bad.md"
+    bad.write_text(("가" * 200) + "\n", encoding="utf-8")
+
+    r_before = subprocess.run(
+        ["ai-harness", "check-doc", "docs/rules/bad.md"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    assert r_before.returncode != 0, "면제 등재 전엔 core 기본값(빈 목록)으로 리젝돼야 한다"
+
+    (repo / "gate_config.py").write_text(
+        'EXTRA_WHITELIST = frozenset({"docs/rules/bad.md"})\n', encoding="utf-8"
+    )
+    r_after = subprocess.run(
+        ["ai-harness", "check-doc", "docs/rules/bad.md"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    assert r_after.returncode == 0, r_after.stdout + r_after.stderr
 
 
 # --- pre-commit 배선(git 훅) 자체 회귀 ----------------------------------------

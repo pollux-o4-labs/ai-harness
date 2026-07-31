@@ -24,6 +24,9 @@ gen_readmes.py — BLUF 기반 README 자동 생성기 (결정적 롤업, LLM 0)
 사용:
   ai-harness gen-readmes           # 적용(README 갱신)
   ai-harness gen-readmes --check    # 드라이런: 변경 필요/누락 BLUF가 있으면 비영(非零) 종료
+  ai-harness gen-readmes --staged   # 스테이징된 경로가 속한 폴더(+조상)만 대상
+  ai-harness gen-readmes --check --staged  # pre-commit 훅: 이번 커밋이 바꿀 수
+                                            # 있는 README만 검사(다른 레인 어긋남으로 안 막힘)
 """
 from __future__ import annotations
 
@@ -245,8 +248,8 @@ def is_skipped_dir(d: Path) -> bool:
     그 어긋남(drift)이 --check를 계속 비영으로 만들어 무관한 커밋까지 봉쇄한다.
     추적하지 않는(=관리 대상 아닌) 폴더는 생성·인덱스 양쪽에서 뺀다.
 
-    (사고 원본: pollux-o4-labs/vector-graph-ontology#21 증상 2. 레포가 다르므로
-    번호만 쓰면 엉뚱한 이슈를 가리킨다 — owner/repo까지 적어야 링크가 걸린다.)"""
+    (사고 원본: 형제 저장소에서 관측된 실사고 — gitignore된 스크래치 폴더를 인덱스
+    대상으로 삼아 체크아웃마다 다른 README가 생성됐다.)"""
     return is_excluded_dir(d) or is_git_ignored(d)
 
 
@@ -472,6 +475,82 @@ def compose_readme(folder: Path, index_block: str) -> str:
     return header + "\n\n" + index_block.rstrip() + "\n"
 
 
+def staged_folders(root: Path) -> list[Path]:
+    """스테이징된 경로가 속한 폴더와 그 조상(루트까지)만 골라 반환한다.
+
+    자동생성 인덱스는 폴더 README 하나가 그 폴더의 직속 자식(문서·자산·하위폴더의
+    자체 BLUF)에서만 파생된다 — 그래서 스테이징한 변경이 바꿀 수 있는 README는
+    그 경로의 **조상 폴더**에만 있다(직속 자식 파일 추가·삭제, 새 하위폴더 생성,
+    하위 README의 자체 BLUF 변경이 모두 조상 폴더 README에서 걸린다). 전체 스캔
+    대신 이 집합만 검사하면, 다른 병렬 레인이 건드린 무관한 폴더의 어긋남이 이번
+    커밋을 막지 않는다.
+
+    (사고 원본: 형제 저장소에서 관측된 실사고 — 1차: 다른 레인의 새 문서가 반영 안
+    된 인덱스가 무관한 커밋을 봉쇄. 2차: 다른 슬라이스의 BLUF 변경이 tests/README에
+    어긋남으로 걸림.)
+
+    **대가(정직 표기)**: 손대지 않은 폴더의 선재 어긋남은 이 경로로 안 잡힌다.
+    그 백스톱이 될 수 있는 것은 전체 스캔 `--check`뿐이다 — 다만 이 패키지는
+    그 배선을 강제하지 않는다. 채택 저장소가 출하 검사·CI·주기 실행 등 별도
+    지점에 전체 스캔을 스스로 걸어야만 그 백스톱이 실제로 성립한다(배선 의무는
+    `docs/adopting.md` 참고). 안 걸면 손대지 않은 폴더의 어긋남은 아무 데서도
+    안 잡힌다. `check-doc --staged`가 손댄 줄만 강제하는 것과 같은 diff-스코프
+    관용구다.
+
+    삭제(D)·개명(R)·복사(C)도 포함한다 — 파일이 사라지거나 옮겨지면 관련 폴더
+    README의 문서 목록이 바뀌므로 그 폴더도 재검사 대상이다(추가만 보면 삭제로
+    생긴 어긋남을 놓쳐 검사에 구멍이 난다). 개명·복사는 옛/새 경로 양쪽 폴더가
+    영향받으므로 둘 다 담는다.
+
+    **파일명에 탭·백슬래시·큰따옴표가 있으면 git이 `core.quotepath` 설정과
+    무관하게 그 경로를 C 방식으로 quote한다** — 탭 구분 출력(`--name-status`
+    기본형)에서 그 quote·이스케이프를 풀지 않고 `parts[1]`을 그대로 쓰면
+    존재하지 않는 경로가 되어, 그 경로가 진짜 속한 폴더가 조상 집합에서
+    조용히 빠진다(검사가 그 폴더를 못 보고도 통과해버린다). `-z`(NUL 구분자)를
+    쓰면 quote 자체가 나오지 않아 이 문제가 근본에서 없어진다 — 그래서
+    `core.quotepath=false`도 더는 필요 없다(그 설정은 비ASCII만 다루고, 이
+    특수문자 quote는 애초에 그것과 무관했다).
+    """
+    out = subprocess.run(
+        ["git", "diff", "--cached", "--name-status", "-M", "-C",
+         "--diff-filter=ACMRD", "-z"],
+        cwd=str(root), capture_output=True, text=True, check=False,
+    ).stdout
+    # -z 출력은 NUL로 이어진 토큰열이다 — "줄"이 없다. 상태 토큰 하나에 경로
+    # 토큰이 하나(A/M/D) 또는 둘(R/C, 옛·새 경로) 뒤따르는 형태를 순서대로
+    # 소비한다. 마지막 토큰은 트레일링 NUL이 만든 빈 문자열이라 버린다.
+    tokens = out.split("\0")
+    if tokens and tokens[-1] == "":
+        tokens.pop()
+    dirs: set[Path] = set()
+    i = 0
+    while i < len(tokens):
+        status = tokens[i]
+        i += 1
+        if status[:1] in ("R", "C"):
+            # R(개명)·C(복사)는 옛·새 경로 둘 다 폴더가 영향받는다.
+            if i + 1 >= len(tokens):
+                break  # 토큰열이 짝 없이 끊겼다 — 더 못 읽으므로 여기서 멈춘다.
+            rels = tokens[i:i + 2]
+            i += 2
+        else:
+            if i >= len(tokens):
+                break  # 상태 토큰 뒤에 경로가 안 왔다 — 더 못 읽으므로 멈춘다.
+            rels = tokens[i:i + 1]
+            i += 1
+        for rel in rels:
+            d = (root / rel).parent
+            while True:
+                dirs.add(d)
+                if d == root or root not in d.parents:
+                    break
+                d = d.parent
+    # 존재하고 순회 대상인 폴더만 검사한다(삭제된 폴더 자신은 빠져도 그 부모가
+    # 집합에 있어, 부모 README 재생성이 사라진 하위폴더 항목을 제거한다). 루트는
+    # 스테이징이 하나라도 있으면 항상 포함(모든 경로의 조상이라 이미 집합에 있다).
+    return sorted(d for d in dirs if d == root or (d.is_dir() and not is_skipped_dir(d)))
+
+
 def _print_duplicate_markers_abort(
     duplicated: list[tuple[Path, int, int]], root: Path
 ) -> None:
@@ -582,6 +661,9 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     ap = argparse.ArgumentParser(prog=prog, description="BLUF 기반 README 자동 생성기")
     ap.add_argument("--check", action="store_true",
                     help="드라이런: 변경 필요/누락 BLUF가 있으면 비영 종료(파일 미수정)")
+    ap.add_argument("--staged", action="store_true",
+                    help="스테이징된 경로가 속한 폴더(+조상)만 대상 — 병렬 레인의 무관한 "
+                         "어긋남으로 커밋이 막히지 않게 좁힌다. pre-commit 훅용.")
     ap.add_argument("--root", default=None,
                     help="저장소 루트 경로(기본: 대상 저장소 git 루트)")
     args = ap.parse_args(argv)
@@ -597,7 +679,8 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
     duplicated: list[tuple[Path, int, int]] = []
     pending: list[tuple[Path, str]] = []
 
-    for folder in iter_folders(root):
+    folders = staged_folders(root) if args.staged else iter_folders(root)
+    for folder in folders:
         index_block = build_index_block(folder, missing_bluf)
         readme = folder / "README.md"
 

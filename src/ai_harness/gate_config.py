@@ -31,6 +31,7 @@ from ai_harness.line_shapes import CHECKLIST_SECTION, is_checkbox_line, is_issue
 __all__ = (
     "DISABLED_GATES",
     "EXTRA_AUTOGEN_MARKERS",
+    "EXTRA_WHITELIST",
     "EXEMPT_SECTIONS",
     "build_exempt_shape",
     "RULE_DOC_AUTHORING",
@@ -50,6 +51,14 @@ DISABLED_GATES: tuple[str, ...] = ()
 # 도구가 없는 저장소에서 남의 마커 이름이 core에 하드코딩돼 있으면 죽은
 # 참조다). core의 `_AUTOGEN_MARKERS`가 이 튜플을 자기 것과 이어 붙인다.
 EXTRA_AUTOGEN_MARKERS: tuple[tuple[str, str], ...] = ()
+
+# check_doc_form.py의 예산 면제 문서 — core는 `WHITELIST`(빈 게 기본)만 안다.
+# 저장소가 길어야 정상인 문서(실험 원시 기록·측정 로그 등)를 가지면 그 경로를
+# 여기 추가한다 — **비어 있는 게 기본이다**(그런 문서가 없는 저장소에서 남의
+# 경로가 core에 하드코딩돼 있으면 죽은 면제다). core의 `WHITELIST`가 이
+# 튜플과의 합집합으로 판정한다. 등재 시 왜 면제인지는 대상 저장소의
+# gate_config.py 주석이 정본이다(core는 그 근거를 모른다).
+EXTRA_WHITELIST: frozenset[str] = frozenset()
 
 # 글자 예산 대신 **형태**로 강제하는 섹션 — 조직 공용 템플릿(org `.github` 레포의
 # pull_request_template.md)에서 온 표준 골격이다.
