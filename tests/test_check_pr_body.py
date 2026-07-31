@@ -1,4 +1,4 @@
-# BLUF: check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·은어 풀이·gh 명령 본문추출·훅 exit코드·코멘트 게이트·머지 준비 dry-run을 검증.
+# BLUF: check_pr_body의 섹션 필수·섹션별 예산·면제 섹션 형태·gh 명령 본문추출·훅 exit코드·코멘트 게이트·머지 준비 dry-run을 검증.
 """tests/test_check_pr_body.py — PR 본문 게이트 단위테스트.
 
 DB도 LLM(언어모델)도 안 쓴다 — 순수 문자열 판정이라 어디서 돌려도 같은 결과다.
@@ -146,46 +146,6 @@ def test_budget_boundary_is_inclusive():
 def test_measure_ignores_layout_whitespace():
     """줄바꿈·들여쓰기는 예산을 먹지 않는다 — 재는 건 내용이지 레이아웃이 아니다."""
     assert cpb.measure("가나\n\n  다  라\n") == cpb.measure("가나 다 라")
-
-
-# --- 제4조: 내부 용어 풀이 -------------------------------------------------
-
-@pytest.fixture
-def with_jargon(monkeypatch):
-    """공용 도구의 `JARGON_TERMS` 기본값은 빈 튜플(consumer가 채운다)이라, 은어
-    검출 로직을 검증하는 테스트는 테스트-로컬로 목록을 주입한다 — "값이 있으면
-    검출, 없으면 통과"라는 계약을 고정한다."""
-    monkeypatch.setattr(cpb, "JARGON_TERMS", ("테스트약어", "샘플용어"))
-
-
-def test_jargon_without_gloss_rejected(with_jargon):
-    body = GOOD_BODY.replace("커밋 산출물 기준.", "테스트약어 경로도 확인.")
-    assert any("'테스트약어'에 풀이가 없음" in v for v in cpb.check_pr_body(body))
-
-
-def test_jargon_with_gloss_passes(with_jargon):
-    body = GOOD_BODY.replace(
-        "커밋 산출물 기준.", "테스트약어(쉬운 말 설명) 확인."
-    )
-    assert cpb.check_pr_body(body) == []
-
-
-def test_jargon_in_code_is_ignored(with_jargon):
-    """명령어 안의 용어는 산문이 아니다 — 풀이를 요구하지 않는다."""
-    body = GOOD_BODY.replace("커밋 산출물 기준.", "`git status`로 테스트약어 확인.")
-    assert any("'테스트약어'" in v for v in cpb.check_pr_body(body))
-    body_fenced = GOOD_BODY.replace("커밋 산출물 기준.", "`git status --테스트약어`")
-    assert cpb.check_pr_body(body_fenced) == []
-
-
-def test_configured_jargon_rejected_without_gloss(with_jargon):
-    """설정된 은어는 풀이 없으면 리젝, 괄호 풀이가 붙으면 통과 — 목록에 실린
-    각 용어가 같은 계약을 따른다(목록은 바닥이지 증명 아님)."""
-    for term in ("테스트약어", "샘플용어"):
-        body = GOOD_BODY.replace("커밋 산출물 기준.", f"{term} 위험.")
-        assert any(f"'{term}'에 풀이가 없음" in v for v in cpb.check_pr_body(body)), term
-        glossed = GOOD_BODY.replace("커밋 산출물 기준.", f"{term}(쉬운 말) 위험.")
-        assert cpb.check_pr_body(glossed) == [], term  # 풀이 붙으면 통과
 
 
 # --- 한 줄 한 문장(사항별 구조화) -------------------------------------------
@@ -416,7 +376,7 @@ def test_change_type_rejects_prose():
 def test_prose_cannot_hide_in_code_markup(payload, label):
     """코드 표기로 감싼 산문도 리젝 — 형태 검사는 코드를 벗기면 안 된다.
 
-    은어·문장 검사는 "코드는 산문이 아니다"라 strip_code로 벗기는 게 맞지만, 형태
+    문장 검사는 "코드는 산문이 아니다"라 strip_code로 벗기는 게 맞지만, 형태
     검사에 같은 짓을 하면 감싼 내용이 **사라져서** 섹션이 비어 보이고 통과한다.
     자가 공격으로 실측한 우회구다 — 코드펜스 줄 자체가 이 섹션에 올 수 없는 형태다.
     """
@@ -433,11 +393,16 @@ def test_create_mode_allows_unchecked_checklist():
     assert cpb.check_pr_body(body, require_checklist_complete=False) == []
 
 
-def test_create_mode_still_enforces_format(with_jargon):
-    """create여도 형식(은어 등)은 강제된다 — 체크리스트 완료만 유예."""
-    body = GOOD_BODY.replace("[x]", "[ ]").replace("커밋 산출물 기준.", "테스트약어 확인.")
+def test_create_mode_still_enforces_format():
+    """create여도 형식은 강제된다 — 체크리스트 완료만 유예한다.
+
+    형식 축의 대표로 "한 줄 한 문장"을 쓴다 — 은어 목록 게이트는 걷어냈다
+    (어휘는 목록으로 쫓을 수 없어 리뷰어 몫이다).
+    """
+    body = GOOD_BODY.replace("[x]", "[ ]").replace(
+        "커밋 산출물 기준.", "한 줄에 문장을 둘 넣는다. 이러면 리젝이다.")
     v = cpb.check_pr_body(body, require_checklist_complete=False)
-    assert any("'테스트약어'" in x for x in v)  # 은어는 여전히 잡힘
+    assert any("문장이 여럿" in x for x in v), v
 
 
 def test_create_mode_still_requires_checklist_section():
@@ -453,20 +418,21 @@ def test_merge_mode_requires_all_checked():
     assert any("체크 안 됨" in x for x in cpb.check_pr_body(body))  # 기본=완료요구
 
 
-def test_checkbox_is_self_report_not_evidence(with_jargon):
+def test_checkbox_is_self_report_not_evidence():
     """체크박스가 강제하는 것은 글자 'x' 하나뿐임을 고정한다(자기보고 불신).
 
-    이 테스트가 통과한다는 사실 자체가 체크박스의 한계다 — 본문이 서사·은어
-    범벅이어도 체크 한 글자로 이 항목은 통과한다. 실물을 재는 것은 섹션·예산·
-    풀이 검사이고, 이 항목은 리뷰어에게 넘기는 자기신고에 지나지 않는다.
+    이 테스트가 통과한다는 사실 자체가 체크박스의 한계다 — 본문이 아무리
+    안 읽혀도 체크 한 글자로 이 항목은 통과한다. 실물을 재는 것은 섹션·예산·
+    문장 검사이고, 이 항목은 리뷰어에게 넘기는 자기신고에 지나지 않는다.
     """
     lying = GOOD_BODY.replace(
         "PR 본문에 섹션·분량·용어풀이 게이트를 건다.",
         "배경지식 없는 사람은 절대 못 읽는 문장이다.",
     )
     assert cpb.check_checklist(cpb.parse_sections(lying)) == []
-    # 실물을 재는 검사(예산·은어)는 여전히 살아 있다 — 체크박스가 그걸 못 끈다.
-    assert cpb.check_jargon("## 요약\n\n테스트약어 갱신\n") != []
+    # 실물을 재는 검사(예산)는 여전히 살아 있다 — 체크박스가 그걸 못 끈다.
+    fat = GOOD_BODY.replace("커밋 산출물 기준.", "가" * 999)
+    assert any("예산" in x or "자 >" in x for x in cpb.check_pr_body(fat))
 
 
 # --- gh 명령에서 본문 추출 --------------------------------------------------
@@ -998,9 +964,9 @@ def test_merge_check_cli_fail_reports_violations(monkeypatch, capsys):
 # --- gh pr comment 게이트 ----------------------------------------------------
 #
 # 코멘트는 리뷰 항목별 근거 기록이지 PR 본문이 아니다 — 섹션 골격·체크리스트는
-# 적용하지 않는다(감독 최초 지시). 단, 내부 용어 풀이(JARGON_TERMS)는 코멘트도
-# PR에 남는 글이라 적용한다(감독 정정 — 체크리스트 은어 항목의 적용범위가
-# "PR에 작성된 글"이라 코멘트도 포함된다). 강제 축은 줄수·줄자수·문장구조·은어뿐.
+# 적용하지 않는다(감독 최초 지시). 단, 코멘트도 PR에 남는 글이라 분량·문장
+# 구조는 적용한다. 강제 축은 줄수·줄자수·문장구조뿐 — 내부 용어가 과한지는
+# 리뷰어가 본다.
 
 GOOD_COMMENT = """\
 - 요약 섹션 근거: 실측 143자, 예산 150자 이내.
@@ -1120,16 +1086,8 @@ def test_comment_too_many_lines_rejected():
     assert any(f"> {lines_max}줄" in v for v in violations)
 
 
-def test_comment_jargon_without_gloss_rejected(with_jargon):
-    """JARGON_TERMS의 용어를 괄호 풀이 없이 쓰면 리젝 — 기존 검사기 재사용."""
-    body = GOOD_COMMENT + "- 테스트약어 경로 확인.\n"
-    assert any("'테스트약어'에 풀이가 없음" in v for v in cpb.check_comment(body))
 
 
-def test_comment_jargon_with_gloss_passes():
-    """괄호 풀이가 붙으면 통과."""
-    body = GOOD_COMMENT + "- 테스트약어(대체 경로) 확인.\n"
-    assert cpb.check_comment(body) == []
 
 
 def test_comment_budget_missing_form_is_fail_closed(monkeypatch):

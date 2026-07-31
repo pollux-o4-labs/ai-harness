@@ -49,7 +49,7 @@ ai-harness install-rules   # 공용 규칙 조문 설치(.claude/rules/, --user�
 ## 저장소별 설정
 
 대상 저장소 루트에 `gate_config.py` 하나를 두면 그 값이 core를 덮는다.
-없으면 번들 기본값(빈 은어 목록 등)으로 동작한다.
+없으면 번들 기본값으로 동작한다.
 기본은 전 게이트 켬이고, 안 맞는 저장소만 `DISABLED_GATES`로 그 게이트를 끈다.
 각 값의 의미는 `gate_config.py` 주석이 정본이다.
 
