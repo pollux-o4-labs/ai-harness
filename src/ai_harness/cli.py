@@ -46,6 +46,12 @@ _COMMANDS: tuple[tuple[str, str, bool, str], ...] = (
         False,
         "ai_harness.install_rules",
     ),
+    (
+        "relink-docs",
+        "토픽 폴더 재편 시 마크다운 링크 재작성·--check로 깨진 링크 스캔",
+        False,
+        "ai_harness.relink_docs",
+    ),
 )
 
 # 게이트 서브커맨드 이름 집합 — 대상 저장소의 gate_config가 끌 수 있는 대상.
