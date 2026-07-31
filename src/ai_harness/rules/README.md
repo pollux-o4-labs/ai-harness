@@ -5,5 +5,6 @@
 - `gates-judge-only-what-they-can-see.md` — 유한하고 객관적으로 답이 나오는 것만 검사로 만드는 사항.
 - `issue-reference-and-pr-linkage.md` — 이슈를 umbrella와 단일로 가르고 PR 종료 키워드를 가려 쓰는 사항.
 - `one-register-per-document.md` — 저장소에 남는 모든 글의 어휘 층위를 하나로 고정하는 사항.
+- `review-evidence-before-checking.md` — 확인 체크리스트를 채우기 전에 남겨야 할 근거 기록의 주체·대상·형식에 관한 사항.
 
 <!-- BLUF-INDEX:END -->
