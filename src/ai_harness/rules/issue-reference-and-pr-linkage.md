@@ -8,9 +8,9 @@
 
 이슈를 만들 때 상위 이슈의 sub-issue로 붙일지 정해야 한다.
 
-sub-issue를 가진 이슈가 umbrella다 — 별도 라벨을 두지 않는다.
+sub-issue(하위 이슈)를 보유한 이슈가 umbrella다 — 별도 라벨을 두지 않는다.
 
-umbrella는 하위 과제가 모두 끝나야 닫을 수 있다.
+umbrella는 하위 과제가 모두 완료되어야 닫을 수 있다.
 
 ### 제2조 (PR 종료 키워드)
 
