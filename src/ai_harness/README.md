@@ -22,5 +22,6 @@
 - `install_rules.py` — 패키지에 동봉된 공용 규칙 조문을 대상 저장소의 .claude/rules/(또는 --user면 ~/.claude/rules/)로 복사하는 설치기 — 조문은 정본이라 기존 파일을 덮는다.
 - `line_shapes.py` — 체크박스 줄·이슈 참조 줄의 형태 판정(stdlib only, 의존성 0) — check_pr_body.py와 gate_config.py가 순환 임포트 없이 공유하도록 분리한 모듈.
 - `relink_docs.py` — 토픽 폴더 재편(문서를 폴더로 옮길 때) 시 이동 대상을 가리키던 마크다운 링크를 결정적으로 재작성하고(mv 후), --check로 깨진 상대링크를 스캔하는 유틸(stdlib only, LLM 0).
+- `shell_scan.py` — 셸 명령 문자열의 토큰화와 연산자 경계 분할(stdlib only, 의존성 0) — 두 게이트가 각자 구현하던 것을 한 자리로 모은 모듈.
 
 <!-- BLUF-INDEX:END -->

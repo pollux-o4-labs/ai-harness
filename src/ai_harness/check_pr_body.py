@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -75,6 +74,7 @@ from ai_harness.gate_config import (
 # 으로 읽는다. 줄 형태 판정 두 함수는 여기서 재노출하지 않는다 — 쓰는 쪽이
 # gate_config 하나뿐이라 그쪽이 line_shapes에서 바로 가져가면 된다.
 from ai_harness.line_shapes import CHECKLIST_SECTION
+from ai_harness.shell_scan import SHELL_OPERATORS, tokenize
 
 # 이 dict가 PR 본문 예산의 정본이다 — 문서·템플릿은 이 값을 재서술하지 말고
 # 이 파일을 가리킬 것. 위반 메시지가 실측값과 함께 예산을 알려주므로 저자는
@@ -584,30 +584,12 @@ def _resolve_body_file(raw: str) -> tuple[str | None, str | None]:
 #
 # CRITICAL(실사고): 주석 한 줄("# gh pr comment preceded by env assignment")이
 # 토큰화 결과에서 "gh","pr","comment"로 인접해 gh 호출로 오인됐다 — gh를
-# 부르지도 않은 명령이 리젝됐다. 아래 `_tokenize`가 주석을 인식하므로 그 사례는
+# 부르지도 않은 명령이 리젝됐다. 공용 `tokenize`가 주석을 인식하므로 그 사례는
 # 재발하지 않는다. 다만 **완전한 해결은 아니다** — heredoc과 문자열 안 평문은
 # 이 토큰화로도 구별하지 못한다. 그래서 두 방어를 유지한다 —
 # (1) --body/--body-file 탐색을 매칭된 gh 호출과 같은 셸 세그먼트로 좁혀 무관한
 # 다른 명령의 플래그를 오인해 붙잡지 않게 하고(국소성), (2) 그래도 리젝될 땐
 # 어떤 토큰을 gh 호출로 인식했는지 사유에 노출해 오탐 자기진단 비용을 줄인다.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|", "&"})
-
-
-def _tokenize(command: str) -> list[str]:
-    """명령 문자열을 토큰으로 나누되 셸 연산자가 공백 없이 붙어 있어도 뗀다.
-
-    `shlex.split`은 공백 분리 토크나이저라 `--body-file x.md;echo`를 한 토큰으로
-    준다. 그러면 세그먼트가 안 갈려 위 국소성 방어가 실효를 잃고, 뒤 명령의
-    본문을 앞 호출의 것으로 채택한다(실측). `punctuation_chars=True`는 연산자를
-    떼되 따옴표 안은 보존한다. 형제 게이트가 같은 결함을 겪고 같은 처방을 썼다.
-
-    미닫힌 따옴표는 `ValueError`를 그대로 올린다 — 이 모듈은 못 들여다보면
-    리젝하는 정책이므로 호출자가 그 예외를 사유로 바꾼다.
-    """
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    return list(lex)
-
 # gh의 값-소비 전역 플래그 — subcommand(pr create·pr comment·pr merge) 앞에
 # 올 수 있다(`gh --repo o/r pr comment ...`). 완결 목록이 아니다(상습범
 # 목록 방식) — 새로 관측되면 추가한다.
@@ -676,7 +658,7 @@ def _segment_end(argv: list[str], start: int) -> int:
     문장 안으로만 좁힌다(국소성) — `&&`로 이어진 다음 명령의 플래그를 이
     호출 소속으로 오인하지 않는다."""
     for j in range(start, len(argv)):
-        if argv[j] in _SHELL_OPERATORS:
+        if argv[j] in SHELL_OPERATORS:
             return j
     return len(argv)
 
@@ -699,8 +681,8 @@ def _match_diagnostic(argv: list[str], span: tuple[int, int], subcommand: str) -
     gh_i, subcmd_i = span
     return (
         f" [진단: 'gh ... pr {subcommand}'로 인식한 토큰 {gh_i}..{subcmd_i}="
-        f"{argv[gh_i:subcmd_i + 1]!r} — shlex는 셸 문법을 모른다(주석·"
-        f"heredoc·문자열 안 평문도 매칭될 수 있음). 오탐이면 그 주변 원문을 "
+        f"{argv[gh_i:subcmd_i + 1]!r} — 토큰화는 셸 구조를 완전히 알지 못한다"
+        f"(heredoc·문자열 안 평문도 매칭될 수 있음). 오탐이면 그 주변 원문을 "
         f"의심하라.]"
     )
 
@@ -755,7 +737,7 @@ def _extract_body_for_subcommand(command: str, subcommand: str) -> tuple[str | N
     호출자가 '검사 대상 아님'으로 통과시킨다.
     """
     try:
-        argv = _tokenize(command)
+        argv = tokenize(command)
     except ValueError as e:  # 따옴표 안 닫힘 등 — 셸이 알아서 죽는다
         return None, f"명령 파싱 실패({e})"
 
@@ -854,7 +836,7 @@ def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
     반환: (title, reason_if_uninspectable).
     """
     try:
-        argv = _tokenize(command)
+        argv = tokenize(command)
     except ValueError as e:
         return None, f"명령 파싱 실패({e})"
 
@@ -1029,7 +1011,7 @@ def extract_pr_view_from_merge_command(command: str) -> tuple[dict | None, str |
     — 호출자가 '검사 대상 아님'으로 통과시킨다.
     """
     try:
-        argv = _tokenize(command)
+        argv = tokenize(command)
     except ValueError as e:
         return None, f"명령 파싱 실패({e})"
 
