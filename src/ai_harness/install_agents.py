@@ -24,10 +24,15 @@ from pathlib import Path
 _AGENTS_SRC = Path(__file__).resolve().parent / "agents"
 
 
-def install_agents(user: bool = False) -> int:
+def install_agents(user: bool = False, only: list[str] | None = None) -> int:
     """동봉 agents/*.md를 대상의 .claude/agents/로 복사(기존은 보존). 설치 개수 반환.
 
     user=True면 ~/.claude/agents/(모든 저장소 공용), 아니면 대상 저장소(git 루트).
+
+    only가 주어지면 그 이름의 좌석만 설치한다. 저장소 전용 도구가 필요한 좌석을
+    자기 이름으로 소유한 저장소는 전량 설치가 같은 역할을 두 벌로 만든다 —
+    설치기는 파일명이 같을 때만 건너뛰기 때문이다(agents/README.md의 이름 규칙).
+    이름은 확장자 유무를 가리지 않는다.
     """
     from ai_harness.config import installer_target_dir
 
@@ -43,10 +48,22 @@ def install_agents(user: bool = False) -> int:
 
     dst_dir.mkdir(parents=True, exist_ok=True)
 
+    wanted = {n.removesuffix(".md") for n in only} if only else None
+    if wanted is not None:
+        available = {p.stem for p in _AGENTS_SRC.glob("*.md") if p.name != "README.md"}
+        unknown = sorted(wanted - available)
+        if unknown:
+            # 오타를 조용히 0개 설치로 넘기면 저자가 설치된 줄 안다.
+            print(f"[install_agents] 없는 좌석: {', '.join(unknown)} "
+                  f"— 동봉: {', '.join(sorted(available))}")
+            return 0
+
     installed = 0
     for src in sorted(_AGENTS_SRC.glob("*.md")):
         if src.name == "README.md":
             continue  # 폴더 개요 README는 에이전트가 아니라 설치 제외
+        if wanted is not None and src.stem not in wanted:
+            continue
         dst = dst_dir / src.name
         if dst.exists():
             print(f"[install_agents] = {src.name} (이미 있음 — 덮지 않음, 커스터마이즈 보존)")
@@ -66,8 +83,12 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         "--user", action="store_true",
         help="~/.claude/agents/(모든 저장소 공용)에 설치. 미지정 시 대상 저장소 .claude/agents/.",
     )
+    ap.add_argument(
+        "--only", nargs="+", metavar="NAME",
+        help="그 이름의 좌석만 설치(예: --only reviewer-style). 미지정 시 전량.",
+    )
     args = ap.parse_args(argv)
-    install_agents(user=args.user)
+    install_agents(user=args.user, only=args.only)
     return 0
 
 

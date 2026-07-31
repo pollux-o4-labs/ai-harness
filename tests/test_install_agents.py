@@ -55,3 +55,32 @@ def test_user_mode_installs_to_home(tmp_path, monkeypatch):
 def test_no_git_skips(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # .git 없음 → 0 (전역 설치는 --user)
     assert ia.install_agents() == 0
+
+
+def test_only_installs_named_seats(tmp_path, monkeypatch):
+    """--only는 지목한 좌석만 설치한다.
+
+    저장소 전용 도구가 필요한 좌석을 자기 이름으로 소유한 저장소는 전량 설치가
+    같은 역할을 두 벌로 만든다 — 설치기는 파일명이 같을 때만 건너뛴다."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    monkeypatch.chdir(repo)
+    assert ia.install_agents(only=["reviewer-style"]) == 1
+    dst = repo / ".claude" / "agents"
+    assert sorted(p.name for p in dst.glob("*.md")) == ["reviewer-style.md"]
+
+
+def test_only_accepts_name_with_extension(tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    monkeypatch.chdir(repo)
+    assert ia.install_agents(only=["reviewer-style.md"]) == 1
+
+
+def test_only_with_unknown_name_installs_nothing(tmp_path, monkeypatch):
+    """오타를 조용히 0개 설치로 넘기면 저자가 설치된 줄 안다."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    monkeypatch.chdir(repo)
+    assert ia.install_agents(only=["reviewer-styl"]) == 0
+    assert sorted((repo / ".claude" / "agents").glob("*.md")) == []
