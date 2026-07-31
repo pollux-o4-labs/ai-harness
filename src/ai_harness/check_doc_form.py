@@ -66,6 +66,10 @@ _AGENT_DEF_TYPE = "agent-def"
 _BUNDLED_RULES_DIR: tuple[str, str, str] = ("src", "ai_harness", "rules")
 _BUNDLED_RULES_TYPE = "rules"
 
+# 동봉 좌석 템플릿도 같은 사유로 여기 건다 — 설치 전에는 `src/` 아래, 설치
+# 후에는 `.claude/agents/` 아래라 같은 파일이 두 예산을 받게 된다.
+_BUNDLED_AGENTS_DIR: tuple[str, str, str] = ("src", "ai_harness", "agents")
+
 # 예산 면제 문서. **비어 있는 게 기본이다** — 길어야 정상인 문서(레퍼런스·
 # 기록 등)가 관측되면 그때 경로를 여기 추가한다. 미리 채워두지 않는다.
 # 이 목록의 정본은 이 파일이다. 등재 시 왜 면제인지 한 줄 주석을 붙일 것.
@@ -266,6 +270,8 @@ def doc_type(path: Path) -> str | None:
     # 그런 경로로 부르는 코드도 없다.
     # 실제 호출 경로가 생기면 그때 스캔으로 넓혀라 — 지금 넓히면 근거 없는 분기다.
     if len(parts) >= 3 and parts[:2] == _AGENT_DEF_DIR:
+        return _AGENT_DEF_TYPE
+    if len(parts) >= 4 and parts[:3] == _BUNDLED_AGENTS_DIR:
         return _AGENT_DEF_TYPE
     if len(parts) >= 4 and parts[:3] == _BUNDLED_RULES_DIR:
         return _BUNDLED_RULES_TYPE
