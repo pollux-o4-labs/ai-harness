@@ -5,6 +5,7 @@
 - `B-autogen-marker-substring-match-hides-violations.md` — 자동생성 마커를 줄 시작 앵커 없이 매치하면 산문 중간 인용도 매치돼 다수의 위반이 숨었다 — 마커는 줄의 유일한 내용이어야 한다.
 - `B-classify-handwritten-by-reproducibility.md` — 생성물과 손글씨를 재생산 가능성으로 가르려는 시도는 원리적으로 불가능하고 정상 작업을 막는다 — 기각.
 - `B-jargon-list-gate-chases-an-open-set.md` — 내부 용어를 목록으로 쫓는 게이트는 무한 집합을 상대하므로 걷어내고 리뷰어에게 넘긴다.
+- `B-local-path-tool-install-serves-cached-build.md` — 로컬 경로 `uv tool install --force .`는 새 코드를 반영하지 않고 exit 0을 내므로, 갱신엔 `--reinstall`을 쓴다.
 - `B-refs-keyword-does-not-close-issue.md` — `Refs`는 종료 키워드가 아니라 완결된 이슈가 안 닫혔다 — 완결이면 `Closes`를 쓴다.
 
 <!-- BLUF-INDEX:END -->
