@@ -23,3 +23,14 @@ def test_rule_cite_with_article():
 def test_rule_cite_without_article():
     """article 생략 시 base만 괄호에 담긴다."""
     assert gc.rule_cite("스타일 규칙") == "(스타일 규칙)"
+
+
+def test_extra_whitelist_defaults_to_empty():
+    """대상 저장소가 등재하지 않으면 core 판정에 아무 영향이 없어야 한다."""
+    assert gc.EXTRA_WHITELIST == frozenset()
+
+
+def test_extra_whitelist_is_in_public_surface():
+    """__all__에 없으면 config.py의 오버레이가 이 값을 조용히 무시한다
+    (gate_config.py 모듈 주석의 계약) — 등재 자체를 회귀로 고정한다."""
+    assert "EXTRA_WHITELIST" in gc.__all__

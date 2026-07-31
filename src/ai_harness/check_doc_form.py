@@ -26,7 +26,7 @@ import sys
 from collections.abc import Iterator
 from pathlib import Path
 
-from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, RULE_DOC_AUTHORING
+from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, EXTRA_WHITELIST, RULE_DOC_AUTHORING
 from ai_harness.gate_config import rule_cite as _rule_cite
 
 # CWD가 아니라 이 스크립트 자신의 위치에 앵커링한다 — CWD 상대였을 때 다른
@@ -73,6 +73,10 @@ _BUNDLED_AGENTS_DIR: tuple[str, str, str] = ("src", "ai_harness", "agents")
 # 예산 면제 문서. **비어 있는 게 기본이다** — 길어야 정상인 문서(레퍼런스·
 # 기록 등)가 관측되면 그때 경로를 여기 추가한다. 미리 채워두지 않는다.
 # 이 목록의 정본은 이 파일이다. 등재 시 왜 면제인지 한 줄 주석을 붙일 것.
+#
+# 대상 저장소가 자기 gate_config.py에 EXTRA_WHITELIST를 등재하면 그 값이
+# 여기 추가되어(오버레이) 판정은 항상 이 둘의 합집합을 본다 — 아래 두 사용처
+# (check_file·check_staged) 모두 `WHITELIST | EXTRA_WHITELIST`로 잰다.
 WHITELIST: frozenset[str] = frozenset()
 
 # 금지된 문서 참조. `(참조하는 문서, 참조 대상)` 쌍이며 **비어 있는 게 기본이다.**
@@ -308,7 +312,7 @@ def check_forbidden_refs(path: Path, lines: list[str]) -> list[str]:
 
 def check_file(path: Path) -> list[str]:
     """워킹트리 파일에 폼을 적용한다(직접 호출·감사용). 빈 리스트 = 통과."""
-    if path.as_posix() in WHITELIST:
+    if path.as_posix() in WHITELIST | EXTRA_WHITELIST:
         return []
     return _check_content(path, path.read_text(encoding="utf-8"))
 
@@ -606,7 +610,7 @@ def check_staged(path: Path, old_path: Path | None = None) -> list[str]:
     뜻이다. 전량 검사(`check_file`)가 그 백스톱인데 훅·CI 어디에도 안 걸려
     있다 — pre-commit은 `--staged`만 부른다. "N줄 상한"은 그래서 무조건이
     아니라 **문자가 늘 때만 걸리는 조건부**다."""
-    if path.as_posix() in WHITELIST:
+    if path.as_posix() in WHITELIST | EXTRA_WHITELIST:
         return []
     all_v = _check_content(path, _staged_blob(path))
     if not all_v:
