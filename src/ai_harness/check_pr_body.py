@@ -582,15 +582,31 @@ def _resolve_body_file(raw: str) -> tuple[str | None, str | None]:
 
 # gh 호출 매칭·본문 탐색 공통 인프라 — create·merge·comment 셋 다 이 위에 선다.
 #
-# CRITICAL(실사고): 파이썬 heredoc 안의 주석 한 줄("# gh pr comment preceded by
-# env assignment")이 shlex.split 결과에서 "gh","pr","comment"가 인접해 gh
-# 호출로 오인됐다 — gh를 부르지도 않은 명령이 리젝됐다. **근본 해결은
-# 불가능하다**: shlex는 진짜 셸 파서가 아니라 주석·heredoc·문자열 안 평문을
-# 구별 못 한다. 대신 두 가지로 피해를 줄인다 — (1) --body/--body-file 탐색을
-# 매칭된 gh 호출과 같은 셸 세그먼트로 좁혀 무관한 다른 명령의 플래그를 오인해
-# 붙잡지 않게 하고(국소성), (2) 그래도 리젝될 땐 어떤 토큰을 gh 호출로 인식
-# 했는지 사유에 노출해 오탐 자기진단 비용을 줄인다.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|"})
+# CRITICAL(실사고): 주석 한 줄("# gh pr comment preceded by env assignment")이
+# 토큰화 결과에서 "gh","pr","comment"로 인접해 gh 호출로 오인됐다 — gh를
+# 부르지도 않은 명령이 리젝됐다. 아래 `_tokenize`가 주석을 인식하므로 그 사례는
+# 재발하지 않는다. 다만 **완전한 해결은 아니다** — heredoc과 문자열 안 평문은
+# 이 토큰화로도 구별하지 못한다. 그래서 두 방어를 유지한다 —
+# (1) --body/--body-file 탐색을 매칭된 gh 호출과 같은 셸 세그먼트로 좁혀 무관한
+# 다른 명령의 플래그를 오인해 붙잡지 않게 하고(국소성), (2) 그래도 리젝될 땐
+# 어떤 토큰을 gh 호출로 인식했는지 사유에 노출해 오탐 자기진단 비용을 줄인다.
+_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|", "&"})
+
+
+def _tokenize(command: str) -> list[str]:
+    """명령 문자열을 토큰으로 나누되 셸 연산자가 공백 없이 붙어 있어도 뗀다.
+
+    `shlex.split`은 공백 분리 토크나이저라 `--body-file x.md;echo`를 한 토큰으로
+    준다. 그러면 세그먼트가 안 갈려 위 국소성 방어가 실효를 잃고, 뒤 명령의
+    본문을 앞 호출의 것으로 채택한다(실측). `punctuation_chars=True`는 연산자를
+    떼되 따옴표 안은 보존한다. 형제 게이트가 같은 결함을 겪고 같은 처방을 썼다.
+
+    미닫힌 따옴표는 `ValueError`를 그대로 올린다 — 이 모듈은 못 들여다보면
+    리젝하는 정책이므로 호출자가 그 예외를 사유로 바꾼다.
+    """
+    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
+    lex.whitespace_split = True
+    return list(lex)
 
 # gh의 값-소비 전역 플래그 — subcommand(pr create·pr comment·pr merge) 앞에
 # 올 수 있다(`gh --repo o/r pr comment ...`). 완결 목록이 아니다(상습범
@@ -739,7 +755,7 @@ def _extract_body_for_subcommand(command: str, subcommand: str) -> tuple[str | N
     호출자가 '검사 대상 아님'으로 통과시킨다.
     """
     try:
-        argv = shlex.split(command)
+        argv = _tokenize(command)
     except ValueError as e:  # 따옴표 안 닫힘 등 — 셸이 알아서 죽는다
         return None, f"명령 파싱 실패({e})"
 
@@ -838,7 +854,7 @@ def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
     반환: (title, reason_if_uninspectable).
     """
     try:
-        argv = shlex.split(command)
+        argv = _tokenize(command)
     except ValueError as e:
         return None, f"명령 파싱 실패({e})"
 
@@ -1013,7 +1029,7 @@ def extract_pr_view_from_merge_command(command: str) -> tuple[dict | None, str |
     — 호출자가 '검사 대상 아님'으로 통과시킨다.
     """
     try:
-        argv = shlex.split(command)
+        argv = _tokenize(command)
     except ValueError as e:
         return None, f"명령 파싱 실패({e})"
 

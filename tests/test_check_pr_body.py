@@ -10,7 +10,6 @@ from __future__ import annotations
 import io
 import json
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -1221,27 +1220,33 @@ def test_wired_hook_blocks_bad_comment(tmp_path, _real_comment_form):
     assert _run_wired_hook(f"gh pr comment 42 --body-file {p}", _REPO_ROOT) == 2
 
 
-# --- CRITICAL: shlex는 셸 구조를 모른다 — 오탐 매칭 자기진단 ------------------
+# --- CRITICAL: 토큰화는 셸 구조를 완전히 알지 못한다 — 오탐 자기진단 ----------
 #
-# 실사고: 파이썬 heredoc 안의 주석 한 줄("# gh pr comment preceded by env
-# assignment")이 shlex.split 결과에서 "gh","pr","comment"가 인접해 gh 호출로
-# 오인됐고, 실제 --body가 없어 exit 2로 리젝됐다(gh를 호출하지도 않은 명령이
-# 막힘). **근본 해결은 불가능하다** — shlex는 진짜 셸 파서가 아니라 주석·
-# heredoc·문자열 안 평문을 구별 못 한다. 대신: (1) --body/--body-file 탐색을
-# 매칭된 gh 호출과 같은 셸 세그먼트로 좁히고(국소성), (2) 리젝 사유에 어떤
-# 토큰을 gh 호출로 인식했는지 노출해 오탐 자기진단 비용을 줄인다.
+# 실사고: 주석 한 줄("# gh pr comment preceded by env assignment")이 토큰화
+# 결과에서 "gh","pr","comment"로 인접해 gh 호출로 오인됐고, 실제 --body가 없어
+# exit 2로 리젝됐다(gh를 호출하지도 않은 명령이 막힘). 주석을 인식하는 토큰화로
+# 바꾸어 그 사례는 재발하지 않는다. **완전한 해결은 아니다** — heredoc과 문자열
+# 안 평문은 여전히 구별하지 못한다. 그래서 두 방어를 유지한다: (1) --body·
+# --body-file 탐색을 매칭된 gh 호출과 같은 셸 세그먼트로 좁히고(국소성),
+# (2) 리젝 사유에 어떤 토큰을 gh 호출로 인식했는지 노출해 자기진단 비용을 줄인다.
 
-def test_comment_false_positive_in_prose_is_diagnosable():
-    """오탐(주석 속 평문)은 여전히 리젝되지만(근본 해결 불가), 사유에 매칭
-    위치가 드러나야 한다 — 사람이 즉시 오탐임을 판별할 수 있게."""
+def test_comment_false_positive_in_prose_no_longer_triggers():
+    """주석 속 평문은 더 이상 gh 호출로 오인되지 않는다.
+
+    셸 연산자를 아는 토큰화로 바꾸면서 `#` 이후가 주석으로 인식되어 위
+    실사고의 오탐 자체가 발생하지 않는다. 진단 노출은 여전히 필요하다 —
+    heredoc·문자열 안 평문은 이 토큰화로도 구별하지 못한다."""
     command = "echo start\n# gh pr comment preceded by env assignment\necho end"
     body, reason = cpb.extract_body_from_comment_command(command)
-    assert body is None
-    assert reason is not None
-    argv = shlex.split(command)
-    gh_idx = argv.index("gh")
-    assert str(gh_idx) in reason
-    assert repr(argv[gh_idx:gh_idx + 3]) in reason
+    assert (body, reason) == (None, None)
+
+
+def test_real_gh_call_after_comment_is_still_caught():
+    """주석 인식이 우회로가 되어서는 아니 된다 — 실제 호출은 그대로 잡힌다."""
+    body, reason = cpb.extract_body_from_command(
+        '# 설명 한 줄\ngh pr create --title t --body "짧은 본문"'
+    )
+    assert (body, reason) == ("짧은 본문", None)
 
 
 def test_comment_body_flag_before_match_is_not_used(tmp_path):
@@ -1650,3 +1655,43 @@ def test_template_itself_declares_only_known_sections():
     sections = set(re.findall(r"^##\s+(.+?)\s*$", _template_text(), re.M))
     allowed = set(cpb.SECTION_BUDGETS) | {cpb.CHECKLIST_SECTION} | set(cpb.EXEMPT_SECTIONS)
     assert sections <= allowed, f"템플릿에 게이트가 모르는 섹션: {sections - allowed}"
+
+
+# ── 셸 연산자 경계 (회귀) ────────────────────────────────────────────────────
+# `shlex.split`은 공백 분리 토크나이저라 셸 문법을 모른다 — 공백 없이 붙은
+# 연산자를 앞 토큰에 들러붙게 둔다. 그러면 세그먼트가 안 갈리고, "--body 탐색을
+# 매칭된 gh 호출과 같은 셸 세그먼트로 좁힌다"는 이 모듈의 국소성 설계가
+# 무력화된다. 형제 게이트(check_git_state)는 같은 결함을 실사고로 겪고 고쳤다.
+
+
+def test_glued_semicolon_does_not_swallow_next_token(tmp_path):
+    """`;`가 공백 없이 붙어도 경로가 온전해야 한다(오탐 방지)."""
+    p = tmp_path / "body.md"
+    p.write_text(GOOD_BODY, encoding="utf-8")
+    body, reason = cpb.extract_body_from_command(
+        f"gh pr create --title t --body-file {p};echo done"
+    )
+    assert reason is None
+    assert body == GOOD_BODY
+
+
+def test_glued_semicolon_does_not_leak_next_command_body(tmp_path):
+    """뒤 명령의 본문을 앞 gh 호출의 것으로 채택해서는 아니 된다."""
+    other = tmp_path / "other.md"
+    other.write_text("무관한 본문\n", encoding="utf-8")
+    body, reason = cpb.extract_body_from_command(
+        f"gh pr create --title t;gh pr comment 1 --body-file {other}"
+    )
+    assert body is None
+    assert reason is not None
+
+
+def test_ampersand_does_not_leak_next_command_body(tmp_path):
+    """단일 `&`도 세그먼트 경계다 — 뒤 명령의 본문이 새어서는 아니 된다."""
+    other = tmp_path / "other.md"
+    other.write_text("무관한 본문\n", encoding="utf-8")
+    body, reason = cpb.extract_body_from_command(
+        f"gh pr create --title t & gh pr comment 1 --body-file {other}"
+    )
+    assert body is None
+    assert reason is not None
