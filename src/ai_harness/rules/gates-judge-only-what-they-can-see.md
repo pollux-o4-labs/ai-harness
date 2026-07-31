@@ -86,9 +86,6 @@
 ## 관련
 
 - [기각 사례 — 손글씨를 재생산으로 가르려던 시도](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-classify-handwritten-by-reproducibility.md)
-- 사내 저장소(vector-graph-ontology)의 `docs/history/hooks-automation/`에 이 조문의
-  실측 근거가 있다 — 정규식으로 인용을 뽑으려다 오탐이 대량 발생한 기록이다.
-  외부에서는 열리지 않는다.
 - 이월조항이 무엇을 보호하는지는 `check_pr_body`의 셸 명령 파싱 주석이 보여준다.
   그 주석은 근본 해결이 불가능함을 스스로 적어 두었다 — 이 조를 근거로 걷어낼
   대상이 아니라, 한계를 밝혀 둔 채로 두는 대상이다.
