@@ -10,6 +10,7 @@
 ### 문서
 - `__init__.py` — ai-harness 게이트 패키지 — 설치된 단일 CLI(`ai-harness`)가 이 패키지의 게이트 모듈로 라우팅한다.
 - `check_doc_form.py` — 변경된 .md가 유형별 폼(docs_format/*.md)의 줄 예산을 지키는지 판정하는 룰 게이트(stdlib only, LLM 0) — pre-commit 훅으로 커밋을 리젝한다.
+- `check_git_state.py` — 링크된(2차) 워크트리에서 미커밋 변경을 지우는 git 명령(reset --hard·stash·clean -f·checkout/restore/switch 폐기형)을 실행 전에 막는 Claude Code PreToolUse 가드(stdlib only, LLM 0) — 병렬 슬라이스가 서로의 미커밋을 날리는 병렬 슬라이스 사고를 구조로 차단.
 - `check_pr_body.py` — PR 본문이 필수 섹션을 갖췄고 각 섹션이 글자 예산 안인지, PR 제목이 conventional-commit 형식인지 판정하는 룰 게이트(stdlib only, LLM 0) — Claude Code PreToolUse 훅으로 `gh pr create`·`gh pr merge`를 리젝한다.
 - `cli.py` — ai-harness 게이트 서브커맨드 디스패처 — 설치된 단일 CLI가 각 게이트 모듈의 main으로 라우팅한다(로직은 각 모듈이 정본).
 - `config.py` — 대상 저장소가 어디이고 그 값이 무엇인지를 정하는 곳 — gate_config 오버레이(로드·우아한 실패·1회 가드)와 설치기 대상 경로 판정.
