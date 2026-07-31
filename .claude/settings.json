@@ -7,6 +7,10 @@
           {
             "type": "command",
             "command": "if command -v ai-harness >/dev/null 2>&1; then ai-harness check-pr --hook; fi"
+          },
+          {
+            "type": "command",
+            "command": "if command -v ai-harness >/dev/null 2>&1; then ai-harness check-git-state --hook; fi"
           }
         ]
       }

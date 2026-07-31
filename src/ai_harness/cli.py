@@ -27,6 +27,12 @@ _COMMANDS: tuple[tuple[str, str, bool, str], ...] = (
         True,
         "ai_harness.gen_pr_template",
     ),
+    (
+        "check-git-state",
+        "미커밋을 지우는 git 명령 차단(링크 워크트리 한정)",
+        True,
+        "ai_harness.check_git_state",
+    ),
     ("install-hooks", "git 훅 설치", False, "ai_harness.install_hooks"),
     (
         "install-agents",
