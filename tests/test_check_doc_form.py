@@ -779,6 +779,15 @@ def test_bundled_shared_rule_path_has_its_own_type(real_forms):
     assert cdf.doc_type(Path("src/ai_harness/rules")) is None  # 3세그먼트: 파일명 없음
 
 
+def test_bundled_agent_template_has_its_own_type(real_forms):
+    """동봉 좌석 템플릿(`src/ai_harness/agents/*.md`)도 유형 판정을 받아야 한다.
+
+    같은 파일이 설치 전에는 `src/` 아래, 설치 후에는 `.claude/agents/` 아래라
+    유형이 갈리면 한 파일이 두 예산을 받는다 — 위 둘과 같은 함정이다."""
+    assert cdf.doc_type(Path("src/ai_harness/agents/reviewer-style.md")) == "agent-def"
+    assert cdf.doc_type(Path("src/ai_harness/agents")) is None  # 3세그먼트: 파일명 없음
+
+
 def test_agent_definition_nested_in_another_repo_is_deferred_not_supported(real_forms):
     """중첩 저장소의 `<하위 저장소>/.claude/agents/`는 **의도적으로** 유형이 아니다.
 
