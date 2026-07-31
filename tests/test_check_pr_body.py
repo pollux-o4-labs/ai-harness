@@ -164,6 +164,25 @@ def test_sentence_rule_ignores_code_fence_and_decimals():
     assert not any("문장이 여럿" in v for v in cpb.check_pr_body(GOOD_BODY))
 
 
+def test_sentence_rule_detects_question_mark_terminator():
+    """물음표 뒤 다음 문장도 종결로 잡는다 — 마침표만 보던 게 미검출이었다
+    (실측: reviewer-direction.md에 이 유형 문장 경계가 있었다)."""
+    body = GOOD_BODY.replace(
+        "서버측 백스톱(GitHub Actions)은 안 넣음 — 새는 사례 관측되면 그때.",
+        "그런가? 아니다.",
+    )
+    assert any("문장이 여럿" in v for v in cpb.check_pr_body(body))
+
+
+def test_sentence_rule_detects_exclamation_mark_terminator():
+    """느낌표 뒤 다음 문장도 종결로 잡는다."""
+    body = GOOD_BODY.replace(
+        "서버측 백스톱(GitHub Actions)은 안 넣음 — 새는 사례 관측되면 그때.",
+        "끝났다! 다음이다.",
+    )
+    assert any("문장이 여럿" in v for v in cpb.check_pr_body(body))
+
+
 # --- 확인 체크리스트 --------------------------------------------------------
 
 @pytest.mark.parametrize("item", cpb.REQUIRED_CHECKS)
@@ -554,7 +573,7 @@ def _stub_fetch(monkeypatch, *, body: str | None = None, reason: str | None = No
         if comments is None:
             comments = [{"body": f"## 리뷰 종합 — 1차 ({head_sha})\n\n근거."}]
         data = {"body": body, "comments": comments, "headRefOid": head_sha}
-    monkeypatch.setattr(cpb, "_fetch_pr_body", lambda identifier: (data, reason))
+    monkeypatch.setattr(cpb, "_fetch_pr_body", lambda identifier, repo=None: (data, reason))
 
 
 @pytest.mark.parametrize("argv,expected", [
@@ -590,7 +609,7 @@ def test_extract_body_from_merge_uses_fetch(monkeypatch):
 def test_extract_body_from_merge_passes_identifier_to_fetch(monkeypatch):
     captured: dict[str, str | None] = {}
 
-    def fake_fetch(identifier):
+    def fake_fetch(identifier, repo=None):
         captured["id"] = identifier
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
@@ -603,7 +622,7 @@ def test_extract_body_from_merge_omitted_identifier_passes_none(monkeypatch):
     """PR 번호 생략(현재 브랜치 추론) — gh pr view에 식별자 없이 넘어가야 한다."""
     captured: dict[str, str | None] = {}
 
-    def fake_fetch(identifier):
+    def fake_fetch(identifier, repo=None):
         captured["id"] = identifier
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
@@ -714,7 +733,7 @@ def test_hook_does_not_call_merge_fetch_for_pr_create(monkeypatch, tmp_path):
     calls: list[str | None] = []
     monkeypatch.setattr(
         cpb, "_fetch_pr_body",
-        lambda identifier: (calls.append(identifier), (None, "should not be called"))[1],
+        lambda identifier, repo=None: (calls.append(identifier), (None, "should not be called"))[1],
     )
     assert _run_hook(monkeypatch, f"gh pr create --body-file {p}") == 0
     assert calls == []
@@ -991,6 +1010,18 @@ def test_comment_long_line_rejected():
 def test_comment_multiple_sentences_rejected():
     """한 줄에 문장 둘(마침표 뒤 문장이 이어짐)이면 리젝 — 한 줄 한 문장."""
     body = GOOD_COMMENT + "- 첫 사항이다. 둘째 사항이 한 줄에 붙었다.\n"
+    assert any("문장이 여럿" in v for v in cpb.check_comment(body))
+
+
+def test_comment_multiple_sentences_with_question_mark_rejected():
+    """물음표 뒤 문장이 이어져도 리젝 — 마침표만 보던 것의 회귀 시험."""
+    body = GOOD_COMMENT + "- 그런가? 아니다.\n"
+    assert any("문장이 여럿" in v for v in cpb.check_comment(body))
+
+
+def test_comment_multiple_sentences_with_exclamation_mark_rejected():
+    """느낌표 뒤 문장이 이어져도 리젝."""
+    body = GOOD_COMMENT + "- 끝났다! 다음이다.\n"
     assert any("문장이 여럿" in v for v in cpb.check_comment(body))
 
 
@@ -1288,14 +1319,114 @@ def test_merge_recognizes_global_repo_flag(monkeypatch):
     """merge도 같은 매칭 함수를 쓰므로 같이 고쳐진다(선재 결함)."""
     captured: dict[str, str | None] = {}
 
-    def fake_fetch(identifier):
+    def fake_fetch(identifier, repo=None):
         captured["id"] = identifier
+        captured["repo"] = repo
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
     body, reason = cpb.extract_body_from_merge_command("gh --repo o/r pr merge 42")
     assert (body, reason) == (GOOD_BODY, None)
     assert captured["id"] == "42"
+
+
+def test_merge_repo_flag_value_reaches_gh_pr_view(monkeypatch):
+    """회귀: `--repo`를 인식만 하고 값을 버리면 조회가 세션 기준 디렉터리의
+    remote로 새 — 엉뚱한 저장소의 같은 번호 PR을 검사·리젝한다(실사고). 값이
+    `_fetch_pr_body`까지 실려야 한다."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier, repo=None):
+        captured["id"] = identifier
+        captured["repo"] = repo
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    cpb.extract_body_from_merge_command("gh pr merge 44 --repo pollux-o4-labs/ai-harness")
+    assert captured["id"] == "44"
+    assert captured["repo"] == "pollux-o4-labs/ai-harness"
+
+
+def test_merge_repo_flag_omitted_passes_none(monkeypatch):
+    """`--repo` 없는 종전 호출은 여전히 repo=None(현재 디렉터리 remote 추론) —
+    단일 저장소 세션의 동작을 깨지 않는다."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier, repo=None):
+        captured["repo"] = repo
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    cpb.extract_body_from_merge_command("gh pr merge 42")
+    assert captured["repo"] is None
+
+
+def test_merge_repo_flag_short_form_reaches_gh_pr_view(monkeypatch):
+    """`-R` 단축형도 같은 값 추출 경로를 태운다."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier, repo=None):
+        captured["repo"] = repo
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    cpb.extract_body_from_merge_command("gh pr merge 42 -R pollux-o4-labs/ai-harness")
+    assert captured["repo"] == "pollux-o4-labs/ai-harness"
+
+
+def test_fetch_pr_body_includes_repo_flag_when_given(monkeypatch):
+    """`_fetch_pr_body`가 repo를 받으면 실제 `gh pr view` 명령에 `--repo`를
+    싣는다 — 값이 여기까지 와도 gh 호출에 안 실리면 조회는 여전히 새 저장소를
+    본다."""
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0,
+            stdout=json.dumps({"body": GOOD_BODY, "comments": [], "headRefOid": "abc1234"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cpb._fetch_pr_body("44", "pollux-o4-labs/ai-harness")
+    assert calls["cmd"] == [
+        "gh", "pr", "view", "44", "--repo", "pollux-o4-labs/ai-harness",
+        "--json", "body,comments,headRefOid",
+    ]
+
+
+def test_fetch_pr_body_omits_repo_flag_when_none(monkeypatch):
+    """repo=None이면 종전처럼 `--repo`를 안 싣는다(단일 저장소 세션 종전 동작)."""
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0,
+            stdout=json.dumps({"body": GOOD_BODY, "comments": [], "headRefOid": "abc1234"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cpb._fetch_pr_body("44")
+    assert calls["cmd"] == ["gh", "pr", "view", "44", "--json", "body,comments,headRefOid"]
+
+
+def test_merge_check_cli_forwards_repo_flag(monkeypatch):
+    """`--merge-check`도 `--repo`를 받아 같은 조회에 넘긴다(같은 조회를
+    공유한다는 주석이 실제 배선인지 확인)."""
+    captured: dict[str, str | None] = {}
+
+    def fake_check(identifier, repo=None):
+        captured["id"] = identifier
+        captured["repo"] = repo
+        return []
+
+    monkeypatch.setattr(cpb, "check_merge_readiness", fake_check)
+    rc = cpb.main(["--merge-check", "44", "--repo", "pollux-o4-labs/ai-harness"])
+    assert rc == 0
+    assert captured == {"id": "44", "repo": "pollux-o4-labs/ai-harness"}
 
 
 # --- gh pr create 제목 게이트(S5): conventional-commit -----------------------
