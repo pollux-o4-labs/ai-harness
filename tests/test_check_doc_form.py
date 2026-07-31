@@ -402,6 +402,21 @@ def test_sentence_rule_excludes_decimals_paths_numbers(real_forms):
     assert sentence_violations == []
 
 
+def test_sentence_rule_detects_question_mark_terminator(real_forms):
+    """물음표 뒤 다음 문장도 종결로 잡는다 — 마침표만 보던 게 미검출이었다
+    (실측: src/ai_harness/agents/reviewer-direction.md에 이 유형이 있었다)."""
+    doc = _write_doc("docs/rules/x.md", "짧다\n그런가? 아니다.\n짧다\n")
+    violations = cdf.check_file(doc)
+    assert any("문장이 여럿" in v for v in violations)
+
+
+def test_sentence_rule_detects_exclamation_mark_terminator(real_forms):
+    """느낌표 뒤 다음 문장도 종결로 잡는다."""
+    doc = _write_doc("docs/rules/x.md", "짧다\n끝났다! 다음이다.\n짧다\n")
+    violations = cdf.check_file(doc)
+    assert any("문장이 여럿" in v for v in violations)
+
+
 def test_heading_exempt_from_sentence_rule(real_forms):
     """헤딩(`## A. 환경`)의 `A.`는 문장 끝이 아니다 — 구조 라벨이라 문장
     규칙에서 뺀다. 숫자 라벨과 달리 문자 라벨은 앞자리 숫자 배제로 안 걸러진다."""
