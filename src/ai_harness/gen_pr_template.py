@@ -65,8 +65,7 @@ _CHANGE_TYPE_CHECKBOXES: tuple[str, ...] = (
 # `## 확인` 체크리스트 계층 — (부모 인덱스, 자식 인덱스들) 쌍만 보유한다.
 # REQUIRED_CHECKS는 flat tuple이라 계층 정보가 없으므로, 항목 텍스트를 여기
 # 다시 적지 않고 인덱스로만 참조한다(정본은 REQUIRED_CHECKS 하나 — 드리프트
-# 원천 차단). 현재 계층: [0]의 자식 [1],[2] · [3]의 자식 [4],[5],[6] ·
-# [7]·[8]은 단독.
+# 원천 차단). 계층 자체는 아래 튜플이 정본이라 말로 다시 적지 않는다.
 _CHECK_HIERARCHY: tuple[tuple[int, tuple[int, ...]], ...] = (
     (0, (1, 2)),
     (3, (4, 5, 6)),
@@ -94,6 +93,16 @@ def _render_checklist() -> list[str]:
             lines.append(f"  - [ ] {REQUIRED_CHECKS[child_idx]}")
     return lines
 
+
+
+def _write_lf(path: Path, content: str) -> None:
+    """줄바꿈을 LF로 고정해 쓴다 — 생성물이 플랫폼마다 달라지면 안 된다.
+
+    `Path.write_text`의 `newline` 인자는 3.10부터라 선언 하한(3.9)에서
+    TypeError를 낸다. `open`의 같은 인자는 오래전부터 있어 그것을 쓴다.
+    """
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
 
 def render() -> str:
     """`.github/PULL_REQUEST_TEMPLATE.md` 전체 텍스트를 생성한다."""
@@ -204,7 +213,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         return 0
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(generated, encoding="utf-8", newline="\n")
+    _write_lf(target, generated)
     print(f"[gen_pr_template] {target} 생성/갱신.")
     return 0
 

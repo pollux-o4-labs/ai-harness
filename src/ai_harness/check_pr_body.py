@@ -24,6 +24,9 @@ conventional-commit 형식(`check_pr_title`, S5).
                                             # (stdin=훅 JSON, exit 2 = 리젝)
   ai-harness check-pr --merge-check <PR>    # 머지 준비 dry-run(실제
                                             # 머지 안 함, exit 1 = 미준비)
+  ai-harness check-pr --merge-check <PR> --repo <owner/repo>
+                                            # 대상 저장소 명시(생략 시 현재
+                                            # 디렉터리 remote로 추론)
 
 훅 모드는 본문을 못 들여다보는 호출(`--fill`, 에디터 대화형, `gh pr merge`의
 `gh pr view` 조회 실패 등)도 리젝한다(fail-closed) — 검사를 우회할 수 있으면
@@ -45,6 +48,7 @@ PR 본문이 아니다 — 섹션 골격(요약/변경/범위 밖/검증)·체�
   gh pr create    섹션·예산·체크절(존재만)·제목(conventional-commit)
   gh pr merge     위 + 체크 전량(제목은 이미 만들어진 PR을 가리킬 뿐이라 검사 안 함)
   gh pr comment   줄자수·줄수 예산 + 한 줄 한 문장(섹션·체크리스트 없음)
+                  + 리뷰 종합이면 직전 종합과 본문이 같은지(check_review_repeat)
 
 (comment 예산 수치는 `docs_format/pr-comment.md`가 정본 — 여기 재서술 안 함.)
 
@@ -54,11 +58,12 @@ PR 본문이 아니다 — 섹션 골격(요약/변경/범위 밖/검증)·체�
 """
 from __future__ import annotations
 
+import enum
 import json
 import re
-import shlex
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # 레포별 설정(면제 섹션·규칙 인용) — 대상 저장소가 값을 오버레이한다.
@@ -68,10 +73,29 @@ from ai_harness.gate_config import (
     build_exempt_shape,
     rule_cite as _rule_cite,
 )
+# gh 명령 문자열에서 본문·제목·머지 대상·저장소 값을 뽑는 파싱(gh 문법)은
+# gh_command.py가 진다 — 이 파일은 그 값으로 판정만 한다(층 구분은
+# gh_command.py 모듈 docstring 참고).
+from ai_harness.gh_command import (
+    extract_body_from_comment_command,
+    extract_body_from_command,
+    extract_title_from_command,
+    resolve_comment_call,
+    resolve_merge_call,
+)
 # 체크리스트 섹션명은 이 파일 로직이 직접 쓰고, 테스트도 `cpb.CHECKLIST_SECTION`
-# 으로 읽는다. 줄 형태 판정 두 함수는 여기서 재노출하지 않는다 — 쓰는 쪽이
-# gate_config 하나뿐이라 그쪽이 line_shapes에서 바로 가져가면 된다.
-from ai_harness.line_shapes import CHECKLIST_SECTION
+# 으로 읽는다. `is_issue_ref_line`·`is_checkbox_line`은 여기서 재노출하지
+# 않는다 — 쓰는 쪽이 gate_config 하나뿐이라 그쪽이 line_shapes에서 바로
+# 쓰면 된다. 아래 넷(펜스·문장 경계·예산 파싱)은 이 파일 자기 로직이
+# 직접 소비하므로 그대로 쓴다.
+from ai_harness.line_shapes import (
+    CHECKLIST_SECTION,
+    LINE_CHARS_PATTERN,
+    MAX_LINES_PATTERN,
+    extract_budgets,
+    has_sentence_boundary,
+    is_fence_line,
+)
 
 # 이 dict가 PR 본문 예산의 정본이다 — 문서·템플릿은 이 값을 재서술하지 말고
 # 이 파일을 가리킬 것. 위반 메시지가 실측값과 함께 예산을 알려주므로 저자는
@@ -88,12 +112,9 @@ _NONE_LINE = re.compile(r"^\s*(?:없음|N/?A)\s*$", re.IGNORECASE)
 _EXEMPT_SHAPE = build_exempt_shape()
 
 
-# 문장 종결 마침표 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
-# 게이트 파일이 서로 직접 걸치지 않게 하는 격리 설계라 이 둘끼리는 안 합치고
-# 정규식을 복제한다(제3의 공용 모듈로 뽑는 것은 별개 논의, 지금 범위 아님).
-# 앞이 숫자·마침표면 배제(소수·번호·말줄임), 뒤가 공백
-# 아니면 배제(코드·경로), 뒤에 다음 문장(비공백)이 이어질 때만 걸린다.
-_SENTENCE_END = re.compile(r"(?<![0-9.])\. (?=\S)")
+# 문장 경계 판정(has_sentence_boundary)의 정본·한계·재판정 트리거는
+# line_shapes.py — check_doc_form.py와 이 파일이 같은 "한 줄 한 문장" 규칙을
+# 그 정본 하나로 공유한다.
 REQUIRED_CHECKS: tuple[str, ...] = (
     "가독성을 높이는 검수를 진행했다 (PR body 및 comment 대상)",
     "과한 내부 은어 사용 검수했다",
@@ -104,25 +125,25 @@ REQUIRED_CHECKS: tuple[str, ...] = (
     "바꾼 값·사실을 옮겨 적은 다른 문서도 같이 고쳤는지 확인했다",
     "이 문서를 가리키던 링크·참조가 끊기지 않았는지 확인했다",
     "영향받는 문서의 요약(맨 위 한 줄)이 여전히 맞는지 확인했다",
-    # 아래 2개는 org 공용 템플릿의 체크리스트에서 왔다 — 우리 목록이 문서 정합에만
+    # 이어지는 항목들은 org 공용 템플릿의 체크리스트에서 왔다 — 우리 목록이 문서 정합에만
     # 쏠려 있어 코드 변경의 자기신고 축(테스트·호환성)이 비어 있었다. 나머지 org
     # 항목(self-review·관련 문서 갱신)은 위 항목과 겹쳐 옮기지 않았다(재서술 금지).
     "필요한 테스트를 추가하거나 갱신했다",
     "동작을 깨는 변경(breaking change)이라면 본문에 명시했다",
 )
 
-# `gh pr comment` 예산의 정본 — 이 dict는 이 파일에 없다. check_doc_form의
-# _BUDGET_PATS와 같은 문구 관례를 파싱하지만, 두 게이트 파일을 서로 걸치지
-# 않게 하는 격리 설계라(위 _SENTENCE_END와 같은 이유) 정규식을 복제한다.
-# 폼 파일이 없으면 코멘트 게이트·리뷰 근거 검사가
-# fail-closed로 리젝한다(우회가 아니라 "아직 안 채운 설정"임을 알리는 것) —
-# 저장소가 이 경로에 폼 파일을 작성하면 그때부터 켜진다.
+# `gh pr comment` 예산의 정본 — 이 dict는 이 파일에 없다. 문구 관례 파싱
+# 정규식은 check_doc_form.py의 `_BUDGET_PATS`와 line_shapes.py의 공유 정본을
+# 함께 쓴다(키 집합과 폼 파일 경로만 이 파일이 따로 갖는다). 폼 파일이 없으면
+# 코멘트 게이트·리뷰 근거 검사가 fail-closed로 리젝한다(우회가 아니라 "아직
+# 안 채운 설정"임을 알리는 것) — 저장소가 이 경로에 폼 파일을 작성하면
+# 그때부터 켜진다.
 _COMMENT_FORM_PATH = (
     Path(__file__).resolve().parent / "docs_format" / "pr-comment.md"
 )
 _COMMENT_BUDGET_PATS = {
-    "line_chars": re.compile(r"산문 한 줄 (\d+)자"),
-    "max_lines": re.compile(r"(\d+)줄"),
+    "line_chars": LINE_CHARS_PATTERN,
+    "max_lines": MAX_LINES_PATTERN,
 }
 
 # 리뷰 종합 코멘트 헤더 접두어("## 리뷰 종합") — pr-comment.md의 예시 문구
@@ -139,11 +160,15 @@ _REVIEW_LABELS_PAT = re.compile(r"등급 라벨\(닫힌 집합\):\s*(.+?)\.")
 
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _H2 = re.compile(r"^##\s+(.+?)\s*$")
-_FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
+# 펜스 블록을 통째로 벗겨내는 전체 텍스트 치환 — 줄 단위 토글인
+# `is_fence_line`과 매칭 단위가 달라 그 함수로 대체하지 못한다(이쪽은 여는
+# 펜스와 닫는 펜스의 짝을 정규식 하나로 찾는다). 다만 백틱·틸드 둘 다 받아야
+# 하는 것은 같다 — 한쪽만 알면 같은 문서가 코멘트로는 통과하고 본문으로는
+# 리젝된다. `is_fence_line`과 같은 수준이며 펜스 길이 일치는 검사하지 않는다.
+_FENCED_CODE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
-# 코멘트 줄 검사용 펜스 토글 — check_doc_form.py의 _FENCE와 같은 정규식이지만
-# 위와 같은 이유(격리 설계)로 복제한다.
-_FENCE_LINE = re.compile(r"^\s*```")
+# 코멘트 줄 검사용 펜스 토글은 is_fence_line(line_shapes.py)을 쓴다 — 정본·
+# 한계는 그쪽 참고.
 _CHECKED_ITEM = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+?)\s*$")
 
 
@@ -223,10 +248,10 @@ def check_sentences(sections: dict[str, str]) -> list[str]:
             continue
         clean = strip_code(strip_html_comments(sections[name]))
         for i, line in enumerate(clean.splitlines(), 1):
-            if _SENTENCE_END.search(line):
+            if has_sentence_boundary(line):
                 violations.append(
                     f"섹션 '## {name}' {i}번째 줄에 문장이 여럿 — "
-                    f"문장마다 줄바꿈해 불릿로 빼라(마침표 뒤에서 끊는다)."
+                    f"문장마다 줄바꿈해 불릿로 빼라(마침표·물음표·느낌표 뒤에서 끊는다)."
                 )
     return violations
 
@@ -329,12 +354,7 @@ def load_comment_budgets() -> dict[str, int]:
     text = _read_comment_form_text()
     if text is None:
         return {}
-    out: dict[str, int] = {}
-    for key, pat in _COMMENT_BUDGET_PATS.items():
-        m = pat.search(text)
-        if m:
-            out[key] = int(m.group(1))
-    return out
+    return extract_budgets(text, _COMMENT_BUDGET_PATS)
 
 
 def load_review_header_prefix() -> str | None:
@@ -413,7 +433,7 @@ def check_comment(body: str) -> list[str]:
     # 펜스 마커 줄 번호를 먼저 모두 모으고 앞에서부터 짝짓는다 — 짝이 맞는
     # 구간만 면제고, 마지막이 홀수로 남으면(안 닫힘) 그 구간은 EOF까지 면제
     # 하지 않는다(fail-closed).
-    fence_lines = [i for i, line in enumerate(lines, 1) if _FENCE_LINE.match(line)]
+    fence_lines = [i for i, line in enumerate(lines, 1) if is_fence_line(line)]
     exempt: set[int] = set()
     for open_i, close_i in zip(fence_lines[0::2], fence_lines[1::2]):
         exempt.update(range(open_i, close_i + 1))
@@ -427,10 +447,10 @@ def check_comment(body: str) -> list[str]:
     for i, line in enumerate(lines, 1):
         if i in exempt:
             continue
-        if _SENTENCE_END.search(line):
+        if has_sentence_boundary(line):
             violations.append(
                 f"코멘트 {i}번째 줄에 문장이 여럿 — 문장마다 줄바꿈해 불릿로 "
-                f"빼라(마침표 뒤에서 끊는다)."
+                f"빼라(마침표·물음표·느낌표 뒤에서 끊는다)."
             )
         if line_max is not None and len(line) > line_max:
             violations.append(
@@ -495,6 +515,57 @@ def _review_skeleton_template(prefix: str, sections: list[str], labels: list[str
     )
 
 
+def _review_body_tail(pattern: re.Pattern[str], text: str) -> str | None:
+    """리뷰 종합 코멘트에서 **헤더 줄을 뺀 나머지**를 낸다 — 종합이 아니면 None.
+
+    헤더만 빼는 이유는 그 줄이 차수·SHA를 담아 매번 달라지는 유일한 줄이라서다.
+    나머지가 같다는 것은 판정 내용이 한 글자도 안 바뀌었다는 뜻이다."""
+    lines = text.splitlines()
+    if not any(pattern.match(line.strip()) for line in lines):
+        return None
+    rest = [line for line in lines if not pattern.match(line.strip())]
+    return "\n".join(rest).strip()
+
+
+def check_review_repeat(body: str, comments: list[dict]) -> list[str]:
+    """올리려는 리뷰 종합이 직전 종합과 헤더 줄만 빼고 같으면 리젝한다.
+
+    `check_review_evidence`가 "리뷰 근거가 낡음"으로 반려할 때 그 요구는
+    **재판정**이다. 그런데 헤더 SHA만 갈아끼워 같은 본문을 다시 올리면 그
+    반려가 통과로 바뀐다(실사고: `sed -i 's/(0b56be0)/(36c867f)/'` 한 줄로
+    통과시켰고 사람이 나중에 발견했다). 읽는 쪽은 새 head를 판정했다고 읽지만
+    근거는 옛 시점 산출물이다 — 그 틈을 여기서 막는다.
+
+    잴 수 있는 것만 잰다. "실제로 재현검증했는가"는 못 밝힌다(원칙 2 — 리뷰어
+    몫). 여기선 **본문이 직전과 글자 그대로 같은가**만 본다. 한 줄이라도 새로
+    쓰려면 그 사이 얹힌 커밋을 봐야 하고, 보면 판정이 따라온다. 아무 문장이나
+    덧붙여 우회하는 것은 막지 못한다 — 게이트는 lint이며, 막으려는 것은 의식적
+    우회가 아니라 무의식적 되풀이다.
+
+    리뷰 종합이 아니거나(일반 코멘트) 직전 종합이 없으면(첫 판정) 빈 리스트.
+    """
+    prefix = load_review_header_prefix()
+    if prefix is None:
+        return []  # 헤더 접두어 못 뽑음 — check_comment 예산 경로가 이미 fail-closed
+    pattern = _review_header_pattern(prefix)
+    new_tail = _review_body_tail(pattern, body)
+    if new_tail is None:
+        return []  # 리뷰 종합 아님 → 대조 대상 아님
+    prev_tail = None
+    for c in comments:  # 목록 순서상 뒤가 최신 — 마지막 종합이 직전 판정이다
+        tail = _review_body_tail(pattern, c.get("body") or "")
+        if tail is not None:
+            prev_tail = tail
+    if prev_tail is None or prev_tail != new_tail:
+        return []
+    return [
+        "직전 리뷰 종합과 본문이 같다 — 헤더 SHA만 바꾼 재게시는 재판정이 "
+        "아니다. 그 사이 얹힌 커밋이 무엇이며 앞 판정이 유지되는지 써라"
+        "(`git log --oneline <직전SHA>..<현재head>`). 바뀐 것이 없다는 판정도 "
+        "쓸 내용이다."
+    ]
+
+
 def _print_violations(header: str, violations: list[str]) -> None:
     """헤더 한 줄 + 위반 목록(`  - {v}`)을 stderr로 찍는 공통 관용구.
 
@@ -539,184 +610,9 @@ def _report(violations: list[str], body: str) -> None:
 
 
 # --- 훅 모드 ---------------------------------------------------------------
-
-_BODY_FLAGS = {"--body", "-b"}
-_BODY_FILE_FLAGS = {"--body-file", "-F"}
-
-# 훅은 쉘 **확장 전** 명령 문자열을 받는다 — `$VAR`·`~`·백틱·`*`는 우리가 풀 수
-# 없다. 이걸 "경로 없음"으로 뭉뚱그리면 본문이 멀쩡한데도 리젝돼(오탐) 사람이
-# 게이트를 지운다. 풀 수 없다는 사실과 처방을 따로 말한다.
-_UNEXPANDED = re.compile(r"[$`*]|^~")
-
-
-def _resolve_body_file(raw: str) -> tuple[str | None, str | None]:
-    """--body-file 인자를 읽는다. 반환: (body, reason_if_unreadable)."""
-    if _UNEXPANDED.search(raw):
-        return None, (
-            f"--body-file 경로에 쉘 확장이 있음({raw}) — 훅은 확장 전 명령을 보므로 "
-            f"이걸 풀 수 없다. 절대경로 리터럴로 넘겨라."
-        )
-    path = Path(raw)
-    if not path.is_file():
-        return None, f"--body-file 경로 없음({raw})"
-    return path.read_text(encoding="utf-8"), None
-
-
-# gh 호출 매칭·본문 탐색 공통 인프라 — create·merge·comment 셋 다 이 위에 선다.
 #
-# CRITICAL(실사고): 파이썬 heredoc 안의 주석 한 줄("# gh pr comment preceded by
-# env assignment")이 shlex.split 결과에서 "gh","pr","comment"가 인접해 gh
-# 호출로 오인됐다 — gh를 부르지도 않은 명령이 리젝됐다. **근본 해결은
-# 불가능하다**: shlex는 진짜 셸 파서가 아니라 주석·heredoc·문자열 안 평문을
-# 구별 못 한다. 대신 두 가지로 피해를 줄인다 — (1) --body/--body-file 탐색을
-# 매칭된 gh 호출과 같은 셸 세그먼트로 좁혀 무관한 다른 명령의 플래그를 오인해
-# 붙잡지 않게 하고(국소성), (2) 그래도 리젝될 땐 어떤 토큰을 gh 호출로 인식
-# 했는지 사유에 노출해 오탐 자기진단 비용을 줄인다.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|"})
-
-# gh의 값-소비 전역 플래그 — subcommand(pr create·pr comment·pr merge) 앞에
-# 올 수 있다(`gh --repo o/r pr comment ...`). 완결 목록이 아니다(상습범
-# 목록 방식) — 새로 관측되면 추가한다.
-_GH_GLOBAL_VALUE_FLAGS = frozenset({"--repo", "-R", "--hostname"})
-
-
-def _find_gh_pr_span(argv: list[str], subcommand: str) -> tuple[int, int] | None:
-    """`gh [전역플래그...] pr <subcommand>`의 (gh 토큰 인덱스, subcommand 토큰
-    인덱스)를 찾는다. 복합 명령(`cd x && gh pr create ...`) 안에 있어도 잡는다.
-
-    HIGH(선재 결함): 인접 3토큰 고정 매칭은 `gh --repo o/r pr create`처럼
-    전역 플래그가 subcommand 앞에 오면 놓쳐 무검사로 샌다 — gh 뒤 첫 두
-    non-flag 토큰(전역 플래그는 건너뜀) 방식으로 완화한다. create·merge·
-    comment가 이 함수 하나를 공유하므로 셋 다 같이 고쳐진다.
-    """
-    n = len(argv)
-    for i in range(n):
-        if Path(argv[i]).name != "gh":
-            continue
-        j = i + 1
-        while j < n and argv[j].startswith("-"):
-            if argv[j] in _GH_GLOBAL_VALUE_FLAGS and j + 1 < n:
-                j += 2
-            else:
-                j += 1
-        if j + 1 < n and argv[j] == "pr" and argv[j + 1] == subcommand:
-            return i, j + 1
-    return None
-
-
-def _segment_end(argv: list[str], start: int) -> int:
-    """`start`부터 다음 셸 연산자 토큰(&&·||·;·|) 직전까지의 인덱스(exclusive).
-    없으면 len(argv). --body/--body-file 탐색을 매칭된 gh 호출과 같은 셸
-    문장 안으로만 좁힌다(국소성) — `&&`로 이어진 다음 명령의 플래그를 이
-    호출 소속으로 오인하지 않는다."""
-    for j in range(start, len(argv)):
-        if argv[j] in _SHELL_OPERATORS:
-            return j
-    return len(argv)
-
-
-def _segment_bounds(argv: list[str], span: tuple[int, int]) -> tuple[int, int]:
-    """매칭된 gh 호출(span) 뒤부터 같은 셸 세그먼트 끝까지의 `[start, end)`
-    범위 — `subcmd_i + 1`과 `_segment_end` 조합을 한 곳에 모은다.
-    `_body_from_match`·`extract_title_from_command`가 공유한다(리뷰
-    SHOULD-FIX#2, 3줄 복붙 제거)."""
-    _, subcmd_i = span
-    start = subcmd_i + 1
-    return start, _segment_end(argv, start)
-
-
-def _match_diagnostic(argv: list[str], span: tuple[int, int], subcommand: str) -> str:
-    """리젝 사유에 붙일 자기진단 힌트 — 어떤 토큰을 `gh pr <subcommand>`로
-    인식했는지 위치·내용을 노출한다. 오탐(주석·heredoc 안 평문 등)이어도
-    근본 해결이 불가능하니, 사람이 그 위치를 보고 즉시 오탐임을 판별하게
-    하는 것으로 대신한다."""
-    gh_i, subcmd_i = span
-    return (
-        f" [진단: 'gh ... pr {subcommand}'로 인식한 토큰 {gh_i}..{subcmd_i}="
-        f"{argv[gh_i:subcmd_i + 1]!r} — shlex는 셸 문법을 모른다(주석·"
-        f"heredoc·문자열 안 평문도 매칭될 수 있음). 오탐이면 그 주변 원문을 "
-        f"의심하라.]"
-    )
-
-
-def _body_from_argv(argv: list[str], start: int = 0, end: int | None = None) -> tuple[str | None, str | None]:
-    """`--body`/`--body-file` 플래그에서 본문을 뽑는다 — `gh pr create`와
-    `gh pr comment`가 같은 플래그 계약을 쓰므로 공유한다. `[start, end)`
-    범위로만 스캔한다(국소성) — 기본은 argv 전체.
-
-    알려진 한계(정직 표기, fast-follow): `--body`가 중복되면 첫 값만 본다
-    (gh 자체는 마지막 값이 유효할 수 있다). 아직 관측된 실사고가 아니다.
-
-    반환: (body, reason_if_uninspectable). 호출자가 이미 대상 서브커맨드인지
-    확인했다고 가정한다.
-    """
-    if end is None:
-        end = len(argv)
-    for i in range(start, end):
-        tok = argv[i]
-        if tok in _BODY_FLAGS and i + 1 < end:
-            return argv[i + 1], None
-        if tok.startswith("--body="):
-            return tok.split("=", 1)[1], None
-        if tok in _BODY_FILE_FLAGS and i + 1 < end:
-            return _resolve_body_file(argv[i + 1])
-        if tok.startswith("--body-file="):
-            return _resolve_body_file(tok.split("=", 1)[1])
-
-    # 알려진 한계(정직 표기, fast-follow): comment 호출도 이 문구를 그대로
-    # 쓴다 — "--fill"은 create 전용 플래그라 comment엔 안 맞지만, 아직
-    # 혼동 사례가 관측되지 않아 지금은 고치지 않는다.
-    return None, "본문이 명령에 없음(--fill·에디터 대화형 등) — --body-file로 넘겨라"
-
-
-def _body_from_match(argv: list[str], span: tuple[int, int], subcommand: str) -> tuple[str | None, str | None]:
-    """매칭된 gh 호출(span) 소속 --body/--body-file만 찾는다(국소성) — 매칭된
-    subcommand 토큰 뒤부터 다음 셸 연산자 전까지로 범위를 좁힌다. 실패하면
-    사유에 매칭 위치를 붙인다(자기진단, CRITICAL 처방 2)."""
-    start, end = _segment_bounds(argv, span)
-    body, reason = _body_from_argv(argv, start=start, end=end)
-    if body is None and reason is not None:
-        reason = reason + _match_diagnostic(argv, span, subcommand)
-    return body, reason
-
-
-def _extract_body_for_subcommand(command: str, subcommand: str) -> tuple[str | None, str | None]:
-    """`gh pr <subcommand> ...`에서 본문을 뽑는다 — create·comment가 공유하는
-    본체(대상 서브커맨드 문자열만 다르다). 공개 함수 이름·시그니처는 각자
-    그대로 두고(테스트가 이름을 직접 부른다) 이 헬퍼를 얇게 감싼다.
-
-    반환: (body, reason_if_uninspectable). gh 호출이 아니면 (None, None) —
-    호출자가 '검사 대상 아님'으로 통과시킨다.
-    """
-    try:
-        argv = shlex.split(command)
-    except ValueError as e:  # 따옴표 안 닫힘 등 — 셸이 알아서 죽는다
-        return None, f"명령 파싱 실패({e})"
-
-    span = _find_gh_pr_span(argv, subcommand)
-    if span is None:
-        return None, None
-
-    return _body_from_match(argv, span, subcommand)
-
-
-def extract_body_from_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr create ...`에서 본문을 뽑는다.
-
-    반환: (body, reason_if_uninspectable). gh 호출이 아니면 (None, None) —
-    호출자가 '검사 대상 아님'으로 통과시킨다.
-    """
-    return _extract_body_for_subcommand(command, "create")
-
-
-def extract_body_from_comment_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr comment ...`에서 코멘트 본문을 뽑는다. `gh pr create`와 같은
-    `--body`/`--body-file` 파싱을 재사용한다(둘 다 같은 플래그 계약).
-
-    반환: (body, reason_if_uninspectable). gh pr comment 호출이 아니면
-    (None, None) — 호출자가 '검사 대상 아님'으로 통과시킨다.
-    """
-    return _extract_body_for_subcommand(command, "comment")
+# 명령 문자열에서 본문·제목·머지 대상·저장소 값을 뽑는 파싱(gh 문법)은
+# `gh_command.py`가 진다(위 import) — 이 파일은 그 값으로 판정만 한다.
 
 
 # --- gh pr create 제목 게이트(S5): conventional-commit -----------------------
@@ -760,56 +656,6 @@ def check_pr_title(title: str) -> list[str]:
     return []
 
 
-_TITLE_FLAGS = {"--title", "-t"}
-
-
-def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr create ...`에서 제목을 뽑는다 — `extract_body_from_command`의
-    거울상(같은 `_find_gh_pr_span`·`_segment_bounds` 국소성 규약을 공유한다).
-    `gh pr create`가 아니면 (None, None) — 호출자가 '검사 대상 아님'으로
-    통과시킨다.
-
-    **제목 플래그가 없어도 (None, None)이다(fail-open)** — body와 다른
-    선택이다. body는 플래그가 없으면 리젝 사유를 낸다(우회 차단, 모듈
-    docstring 참조). **이 게이트는 명령에 명시된 제목(`--title`/`-t`류
-    형태)만 검증한다** — `--fill` 등 gh가 커밋에서 파생하는 제목은 argv에
-    아예 없어 이 게이트 사정권 밖이다(커밋 메시지 관심사이지 PR 제목 형식
-    관심사가 아니다, 별도 축). 그래서 제목 플래그가 없으면 통과시킨다 —
-    "제목이 있으면 형식을 강제하고, 없으면 검사하지 않는다"가 의도된
-    스코프다(body처럼 부재 자체를 우회로 보지 않는다). 주의: "제목 부재는
-    body 부재로 이미 막힌다"고 보면 안 된다 — `--fill --body-file <정상
-    본문>`처럼 body는 있고 제목만 없는 호출이 성립하므로, 제목 검사는
-    명시된 제목에만 걸린다.
-
-    붙임 단축형(`-tVALUE`·`-t=VALUE`)도 잡는다(리뷰 SHOULD-FIX#1) — 못 잡으면
-    제목이 실재하는데도 이 게이트가 못 읽어 fail-open으로 새는 우회구가 된다.
-    `-t`는 gh pr create에서 title 전용 단축 플래그라 다른 뜻과 안 겹친다.
-
-    반환: (title, reason_if_uninspectable).
-    """
-    try:
-        argv = shlex.split(command)
-    except ValueError as e:
-        return None, f"명령 파싱 실패({e})"
-
-    span = _find_gh_pr_span(argv, "create")
-    if span is None:
-        return None, None
-
-    start, end = _segment_bounds(argv, span)
-    for i in range(start, end):
-        tok = argv[i]
-        if tok in _TITLE_FLAGS and i + 1 < end:
-            return argv[i + 1], None
-        if tok.startswith("--title="):
-            return tok.split("=", 1)[1], None
-        if tok.startswith("-t="):
-            return tok[3:], None
-        if tok.startswith("-t") and not tok.startswith("--") and len(tok) > 2:
-            return tok[2:], None
-    return None, None
-
-
 def _report_title(violations: list[str], title: str) -> None:
     """PR 제목 위반을 stderr로 보고. `_report_comment`와 같은 골격(섹션 총계가
     없다 — 제목은 섹션이 없는 한 줄이다)."""
@@ -823,54 +669,25 @@ def _report_title(violations: list[str], title: str) -> None:
 # "머지는 사용자 몫 — 감독·구현자는 머지하지 않는다"가 이미 규약이었으나 게이트가
 # 0이었다 — 이 절이 그걸 처음 기계로 강제한다. `gh pr create`와 달리 본문이
 # 명령 인자에 없다(머지 시점엔 이미 작성된 PR을 가리킬 뿐이므로) — `gh pr view
-# --json body`로 능동 조회한다.
-
-def _is_gh_pr_merge(argv: list[str]) -> bool:
-    """`gh pr merge`가 복합 명령(`cd x && gh pr merge ...`) 안에 있어도 잡는다.
-    `_find_gh_pr_span`을 재사용 — create·comment와 같은 전역 플래그 완화를
-    받는다(HIGH-2, 선재 결함: `gh --repo o/r pr merge`도 이제 잡힌다)."""
-    return _find_gh_pr_span(argv, "merge") is not None
+# --json body`로 능동 조회한다. 명령에서 대상 식별자·저장소를 뽑는 파싱은
+# `gh_command.resolve_merge_call`이 진다 — 이 절은 그 값으로 조회·판정만 한다.
 
 
-# gh pr merge의 값-소비 플래그 — 이 값 토큰을 PR 식별자로 오인하면 안 된다
-# (예: `gh pr merge --subject "메시지"`에서 "메시지"는 식별자가 아니다).
-_MERGE_VALUE_FLAGS = {"--subject", "-t", "--body", "-b", "--body-file",
-                       "-F", "--match-head-commit"}
-
-
-def _merge_target(argv: list[str]) -> str | None:
-    """`gh pr merge [<번호|브랜치|URL>] [옵션...]`에서 대상 식별자를 뽑는다.
-    옵션이 아닌 첫 토큰이 식별자다 — 단, `--subject`/`--body` 같은 값-소비
-    플래그의 값 토큰은 건너뛴다(안 그러면 그 값을 식별자로 오인해 정상 머지를
-    오탐 리젝한다). 식별자가 생략되면(gh가 현재 브랜치를 추론) None."""
-    span = _find_gh_pr_span(argv, "merge")
-    if span is None:
-        return None
-    _, subcmd_i = span
-    skip_next = False
-    for tok in argv[subcmd_i + 1:]:
-        if skip_next:
-            skip_next = False
-            continue
-        if tok in _MERGE_VALUE_FLAGS:
-            skip_next = True
-            continue
-        if tok.startswith("--") and "=" in tok:
-            continue  # --subject=foo 형태 — 값이 토큰에 붙어 있다
-        if not tok.startswith("-"):
-            return tok
-    return None
-
-
-def _fetch_pr_body(identifier: str | None) -> tuple[dict | None, str | None]:
-    """`gh pr view [<식별자>] --json body,comments,headRefOid`로 대상 PR의
-    스냅샷을 한 번에 조회한다.
+def _fetch_pr_body(identifier: str | None, repo: str | None = None) -> tuple[dict | None, str | None]:
+    """`gh pr view [<식별자>] [--repo <저장소>] --json body,comments,headRefOid`로
+    대상 PR의 스냅샷을 한 번에 조회한다.
 
     이름은 그대로지만(호출자 다수가 이미 이 이름을 쓴다) 반환값은 본문 문자열이
     아니라 dict다(`body`·`comments`·`headRefOid` 키) — `--merge-check`가
     체크리스트뿐 아니라 리뷰 종합 코멘트·현재 head SHA까지 필요해서 조회를
     확장했다. **subprocess 호출은 이 함수 하나뿐이다** — merge 훅·comment 백스톱·
     `--merge-check`가 이 조회 하나를 공유한다(중복 `gh pr view` 금지).
+
+    `repo`(`owner/repo`)를 안 주면 gh가 현재 디렉터리의 remote로 저장소를
+    추론한다 — 훅은 호출자의 작업 디렉터리가 아니라 세션 기준 디렉터리에서 돌아
+    이 추론이 틀릴 수 있다(실사고: 다른 저장소의 같은 번호 PR을 조회해 오판).
+    `gh pr merge --repo o/r ...`처럼 호출부가 저장소를 명시했으면 그 값을
+    그대로 넘겨받아 조회를 그 저장소로 고정한다.
 
     반환: (data, reason_if_unreadable). 조회 자체가 실패하면(gh 미설치·인증 안
     됨·PR 번호 틀림 등) 본문을 못 들여다본 것과 같으므로 fail-closed로 취급한다
@@ -879,6 +696,8 @@ def _fetch_pr_body(identifier: str | None) -> tuple[dict | None, str | None]:
     cmd = ["gh", "pr", "view"]
     if identifier is not None:
         cmd.append(identifier)
+    if repo is not None:
+        cmd += ["--repo", repo]
     cmd += ["--json", "body,comments,headRefOid"]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
@@ -947,34 +766,24 @@ def extract_pr_view_from_merge_command(command: str) -> tuple[dict | None, str |
     `gh pr view`로 한 번에 조회해 뽑는다 — merge 훅과 `--merge-check`가 이 조회
     하나를 공유한다(단일 콜).
 
+    대상 식별자·저장소 파싱은 `gh_command.resolve_merge_call`에 위임한다 —
+    이 함수는 그 값으로 조회 하나만 잇는다. 명령에 `--repo`/`-R`이 있으면 그
+    값이 그대로 조회에 실린다(HIGH-3, 선재 결함: 훅이 세션 기준 디렉터리에서
+    돌아 여러 저장소를 오가는 세션에서는 저장소 지정 없이 조회하면 엉뚱한
+    저장소의 같은 번호 PR을 리젝했다).
+
     반환: (data, reason_if_uninspectable). gh pr merge 호출이 아니면 (None, None)
     — 호출자가 '검사 대상 아님'으로 통과시킨다.
     """
-    try:
-        argv = shlex.split(command)
-    except ValueError as e:
-        return None, f"명령 파싱 실패({e})"
-
-    if not _is_gh_pr_merge(argv):
-        return None, None
-
-    identifier = _merge_target(argv)
-    return _fetch_pr_body(identifier)
-
-
-def extract_body_from_merge_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr merge ...`가 리젝 대상인 PR의 본문만 뽑는다(기존 계약 유지).
-
-    `extract_pr_view_from_merge_command`를 재사용해 스냅샷에서 본문만 꺼낸다 —
-    argv 파싱·merge 감지 로직을 재구현하지 않는다.
-    """
-    data, reason = extract_pr_view_from_merge_command(command)
-    if data is None:
+    is_merge, identifier, repo, reason = resolve_merge_call(command)
+    if reason is not None:
         return None, reason
-    return data["body"], None
+    if not is_merge:
+        return None, None
+    return _fetch_pr_body(identifier, repo)
 
 
-def check_merge_readiness(identifier: str | None) -> list[str]:
+def check_merge_readiness(identifier: str | None, repo: str | None = None) -> list[str]:
     """`--merge-check` dry-run 판정 — **실제 머지(`gh pr merge`)는 하지 않는다.**
 
     전부 통과해야 "머지 가능"이다:
@@ -982,8 +791,13 @@ def check_merge_readiness(identifier: str | None) -> list[str]:
          같은 기준으로 재사용 — `require_checklist_complete=True`).
       2·3. 리뷰 종합 코멘트의 존재·신선도(`check_review_evidence` — `gh pr
          merge` 훅 백스톱과 같은 검사기를 공유한다).
+
+    `repo`는 `_fetch_pr_body`로 그대로 전달한다 — merge 훅 경로가 명령의
+    `--repo`를 뽑아 조회에 넘기는 것과 같은 조회 함수를 공유하므로, CLI로 직접
+    호출하는 이 경로도 저장소를 지정할 수 있어야 한 쪽만 고쳐지는 어긋남이
+    없다(main()의 `--repo`/`-R` 옵션이 이 값을 채운다).
     """
-    data, reason = _fetch_pr_body(identifier)
+    data, reason = _fetch_pr_body(identifier, repo)
     if data is None:
         return [reason or "PR 조회 실패(gh pr view)"]
     violations = check_pr_body(data["body"], require_checklist_complete=True)
@@ -991,6 +805,87 @@ def check_merge_readiness(identifier: str | None) -> list[str]:
         check_review_evidence(data.get("comments") or [], data.get("headRefOid") or "")
     )
     return violations
+
+
+class HookSubcommand(enum.Enum):
+    """훅이 받은 명령이 `gh pr` 어느 서브커맨드인지 — 값으로 승격한 것.
+
+    이전엔 이 구분이 `(body, reason)` 튜플의 `None` 여부 조합과 `is_merge`
+    참거짓 플래그(한 번 참으로 놓았다가 다음 블록에서 거짓으로 되돌리는 식)에
+    흩어져 있었다. 되돌리기 자체는 결함이 아니었지만(다섯 경로 모두 낙관적으로
+    참을 놓고 아니면 되돌리는 논리로 맞았다), "어느 서브커맨드인가"가 값이
+    아니라 판별 순서에 의존해 흩어져 있었다 — 이 enum이 그 값을 한 곳에
+    묶는다."""
+
+    CREATE = "create"
+    MERGE = "merge"
+    COMMENT = "comment"
+    NONE = "none"  # gh pr create·merge·comment 어느 것도 아님 — 검사 대상 아님
+
+
+@dataclass
+class HookResolution:
+    """`run_hook`이 명령을 판별한 결과 — 서브커맨드 종류와 그에 딸린 본문·리젝
+    사유·머지 스냅샷을 한 값으로 묶는다(판별 순서에 의존하던 상태를 값으로 승격).
+
+    `body`가 None이고 `reason`도 None이면 검사 대상이 아니다(통과). `body`가
+    None이고 `reason`이 있으면 본문을 못 들여다봐 리젝한다(fail-closed). 그
+    밖엔 `body`로 검사를 진행한다 — 이 세 조합은 여전히 유효하다(계약을 바꾸지
+    않았다), 이 값은 그 조합에 "어느 서브커맨드가 이 조합을 냈는가"만 얹는다.
+    """
+
+    kind: HookSubcommand
+    body: str | None = None
+    reason: str | None = None
+    merge_view: dict | None = None
+
+
+def _resolve_hook_command(command: str) -> HookResolution:
+    """`command`가 `gh pr create`·`merge`·`comment` 중 무엇인지, 검사할 본문이
+    무엇인지 판별한다 — create부터 순서대로 시도하고, 앞 서브커맨드가 자기
+    소관이 아니라고 답하면(`(None, None)`) 다음으로 넘어간다."""
+    body, reason = extract_body_from_command(command)
+    if body is not None or reason is not None:
+        return HookResolution(HookSubcommand.CREATE, body=body, reason=reason)
+
+    # gh pr create가 아님 — gh pr merge인지 본다.
+    merge_view, reason = extract_pr_view_from_merge_command(command)
+    if merge_view is not None or reason is not None:
+        body = merge_view["body"] if merge_view is not None else None
+        return HookResolution(
+            HookSubcommand.MERGE, body=body, reason=reason, merge_view=merge_view
+        )
+
+    # gh pr merge도 아님 — gh pr comment인지 본다(셋 다 아니면 NONE).
+    body, reason = extract_body_from_comment_command(command)
+    if body is not None or reason is not None:
+        return HookResolution(HookSubcommand.COMMENT, body=body, reason=reason)
+
+    return HookResolution(HookSubcommand.NONE)
+
+
+def _review_repeat_violations(command: str, body: str) -> list[str]:
+    """`check_review_repeat`에 필요한 조회를 훅에서 붙인다.
+
+    조회는 **리뷰 종합일 때만** 한다 — 일반 코멘트가 네트워크 왕복을 무는 것을
+    막는다. 조회 실패는 fail-open이다. merge 경로의 fail-closed와 갈리는 근거는
+    이 검사가 최종 방어선이 아니라서다 — 놓쳐도 `check_review_evidence`가 머지
+    시점에 SHA 신선도로 다시 잡는다. 반대로 fail-closed로 하면 gh가 안 닿는
+    자리에서 코멘트 작성 자체가 막힌다(검사 하나를 위해 작업을 세우는 셈).
+    """
+    prefix = load_review_header_prefix()
+    if prefix is None:
+        return []
+    pattern = _review_header_pattern(prefix)
+    if not any(pattern.match(line.strip()) for line in body.splitlines()):
+        return []  # 리뷰 종합 아님 — 조회하지 않는다
+    is_comment, identifier, repo, _reason = resolve_comment_call(command)
+    if not is_comment:
+        return []
+    data, _unreadable = _fetch_pr_body(identifier, repo)
+    if data is None:
+        return []  # fail-open — 위 docstring
+    return check_review_repeat(body, data.get("comments") or [])
 
 
 def run_hook() -> int:
@@ -1002,41 +897,29 @@ def run_hook() -> int:
         return 1  # 논블로킹 — 훅 자체 고장으로 작업을 막지는 않는다
 
     command = (payload.get("tool_input") or {}).get("command", "")
-    body, reason = extract_body_from_command(command)
     # create = 리뷰 요청 시점이라 체크리스트 완료를 요구하지 않는다(형식만).
     # merge = 리뷰 끝난 뒤라 체크리스트 전량 + 리뷰 종합 코멘트 존재·신선도까지
     # 요구한다(백스톱, check_review_evidence).
     # comment = PR 본문이 아니라 근거 기록 — 섹션·체크리스트 없이 분량·문장·
     # 용어 풀이만 강제한다(check_comment).
-    is_merge = False
-    is_comment = False
-    merge_view: dict | None = None
-    if body is None and reason is None:
-        # gh pr create가 아님 — gh pr merge인지 본다.
-        merge_view, reason = extract_pr_view_from_merge_command(command)
-        is_merge = True
-        if merge_view is not None:
-            body = merge_view["body"]
-    if body is None and reason is None:
-        # gh pr merge도 아님 — gh pr comment인지 본다(셋 다 아니면 통과).
-        body, reason = extract_body_from_comment_command(command)
-        is_merge = False
-        is_comment = True
+    resolved = _resolve_hook_command(command)
 
-    if body is None:
-        if reason is None:
+    if resolved.body is None:
+        if resolved.kind is HookSubcommand.NONE:
             return 0  # gh pr create·merge·comment 어느 것도 아님 — 검사 대상 아님
-        print(f"[check_pr_body] PR 본문 리젝 — {reason}", file=sys.stderr)
+        print(f"[check_pr_body] PR 본문 리젝 — {resolved.reason}", file=sys.stderr)
         return 2
 
-    if is_comment:
-        violations = check_comment(body)
+    if resolved.kind is HookSubcommand.COMMENT:
+        violations = check_comment(resolved.body) + _review_repeat_violations(
+            command, resolved.body
+        )
         if violations:
-            _report_comment(violations, body)
+            _report_comment(violations, resolved.body)
             return 2
         return 0
 
-    if not is_merge:
+    if resolved.kind is HookSubcommand.CREATE:
         # create만 — 제목 conventional-commit 게이트(S5). merge는 이미 만들어진
         # PR을 가리킬 뿐 제목을 새로 짓지 않으므로 검사 대상이 아니다.
         title, _ = extract_title_from_command(command)
@@ -1046,23 +929,25 @@ def run_hook() -> int:
                 _report_title(title_violations, title)
                 return 2
 
-    violations = check_pr_body(body, require_checklist_complete=is_merge)
-    if is_merge and merge_view is not None:
+    is_merge = resolved.kind is HookSubcommand.MERGE
+    violations = check_pr_body(resolved.body, require_checklist_complete=is_merge)
+    if is_merge and resolved.merge_view is not None:
         # 백스톱: 체크리스트가 전량 체크돼도 리뷰 종합 코멘트가 없거나 낡았으면
         # 여전히 리젝한다(check_review_evidence를 훅이 처음 강제).
         violations = violations + check_review_evidence(
-            merge_view.get("comments") or [], merge_view.get("headRefOid") or ""
+            resolved.merge_view.get("comments") or [],
+            resolved.merge_view.get("headRefOid") or "",
         )
     if violations:
-        _report(violations, body)
+        _report(violations, resolved.body)
         return 2
     return 0
 
 
-def run_merge_check(identifier: str) -> int:
+def run_merge_check(identifier: str, repo: str | None = None) -> int:
     """`--merge-check` dry-run 진입점 — **`gh pr merge`를 부르지 않는다.**
     `check_merge_readiness`의 판정을 사람이 읽을 출력으로 옮길 뿐이다."""
-    violations = check_merge_readiness(identifier)
+    violations = check_merge_readiness(identifier, repo)
     if violations:
         print(
             f"[check_pr_body] 머지 준비 안 됨 — 위반 {len(violations)}건:",
@@ -1084,12 +969,15 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
                     help="Claude Code PreToolUse 훅 모드(stdin=훅 JSON)")
     ap.add_argument("--merge-check", metavar="PR",
                     help="머지 준비 dry-run 검사(실제 머지 안 함) — 대상 PR 번호·브랜치·URL")
+    ap.add_argument("--repo", "-R", metavar="OWNER/REPO", default=None,
+                    help="--merge-check 대상 저장소(gh pr view --repo와 동일) — "
+                         "생략하면 현재 디렉터리의 remote로 추론된다")
     args = ap.parse_args(argv)
 
     if args.hook:
         return run_hook()
     if args.merge_check is not None:
-        return run_merge_check(args.merge_check)
+        return run_merge_check(args.merge_check, args.repo)
     if not args.body_file:
         ap.error("--body-file 또는 --hook 또는 --merge-check 중 하나가 필요하다")
 

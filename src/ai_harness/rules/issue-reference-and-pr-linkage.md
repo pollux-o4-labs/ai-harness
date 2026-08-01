@@ -8,9 +8,9 @@
 
 이슈를 만들 때 상위 이슈의 sub-issue로 붙일지 정해야 한다.
 
-sub-issue를 가진 이슈가 umbrella다 — 별도 라벨을 두지 않는다.
+sub-issue(하위 이슈)를 보유한 이슈가 umbrella다 — 별도 라벨을 두지 않는다.
 
-umbrella는 하위 과제가 모두 끝나야 닫을 수 있다.
+umbrella는 하위 과제가 모두 완료되어야 닫을 수 있다.
 
 ### 제2조 (PR 종료 키워드)
 
@@ -41,5 +41,7 @@ PR이 그 이슈를 완결시키면 본문에 `Closes #N`을 써야 한다.
 
 ## 관련
 
+- [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
+  제1조 — 완결 여부가 사람만 아는 것에 속해 기계 게이트를 두지 않는 근거.
 - [제정 근거가 된 실측 기록](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-refs-keyword-does-not-close-issue.md)
   — 여러 저장소가 함께 쓰는 조문이라 근거도 절대 주소로 가리킨다.

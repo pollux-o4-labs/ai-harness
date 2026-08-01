@@ -203,6 +203,25 @@ def test_extract_bluf_prefers_bluf_over_frontmatter_description(tmp_path):
     assert gen_readmes.extract_bluf(f) == "본문 BLUF."
 
 
+def test_extract_bluf_keeps_trailing_angle_bracket(tmp_path):
+    """BLUF가 자리표시자 `<...>`로 끝나도 닫는 꺾쇠를 깎지 않는다.
+
+    HTML 주석 종결 기호를 걷어내려던 처리가 부분 문자열이 아니라 문자 집합으로
+    동작해 끝의 꺾쇠·붙임표·공백을 문자 단위로 깎았다(실측: 폼 넷의 인덱스
+    항목이 닫는 꺾쇠를 잃은 채 생성되어 있었다).
+    """
+    f = tmp_path / "placeholder.md"
+    f.write_text("> **BLUF:** 자리표시자 <경로>\n", encoding="utf-8")
+    assert gen_readmes.extract_bluf(f) == "자리표시자 <경로>"
+
+
+def test_extract_bluf_strips_html_comment_terminator(tmp_path):
+    """한 줄짜리 HTML 주석 형태에서 종결 기호는 그대로 걷어낸다."""
+    f = tmp_path / "html.md"
+    f.write_text("<!-- BLUF: 한 줄 설명. -->\n", encoding="utf-8")
+    assert gen_readmes.extract_bluf(f) == "한 줄 설명."
+
+
 def test_extract_bluf_ignores_body_description_without_frontmatter(tmp_path):
     """frontmatter가 아닌 본문의 `description:` 줄은 BLUF로 오인하지 않는다."""
     f = tmp_path / "prose.md"
@@ -307,16 +326,18 @@ def test_write_failure_mid_batch_reports_progress_and_distinct_code(tmp_path, mo
     bad_dir.mkdir()
     (bad_dir / "bad.md").write_text("> **BLUF:** 실패 문서.\n", encoding="utf-8")
 
-    original_write_text = Path.write_text
+    original_write_lf = gen_readmes._write_lf
 
-    def _flaky_write_text(self, *args, **kwargs):
+    def _flaky_write_lf(path, content):
         # 쓰기는 같은 폴더 임시 파일을 거쳐 제자리 교체된다 — 실패를 심을 자리도
         # 최종 경로가 아니라 그 임시 파일이다(`_write_readme_atomically`).
-        if self.parent == bad_dir and self.name.endswith(".tmp"):
+        # 대역은 `_write_lf`에 건다: 생성물 줄바꿈을 LF로 고정하려고 쓰기가
+        # 그 헬퍼를 거치므로, `Path.write_text`에 걸면 대역이 안 걸린다.
+        if path.parent == bad_dir and path.name.endswith(".tmp"):
             raise OSError("simulated permission denied")
-        return original_write_text(self, *args, **kwargs)
+        return original_write_lf(path, content)
 
-    monkeypatch.setattr(Path, "write_text", _flaky_write_text)
+    monkeypatch.setattr(gen_readmes, "_write_lf", _flaky_write_lf)
     monkeypatch.setattr(sys, "argv", ["gen_readmes.py", "--root", str(tmp_path)])
 
     rc = gen_readmes.main()
@@ -389,14 +410,14 @@ def test_write_failure_midway_leaves_target_untouched(tmp_path, monkeypatch):
     before = "> **BLUF:** 폴더 설명.\n\n사람이 쓴 문단.\n"
     readme.write_text(before, encoding="utf-8")
 
-    real_write = Path.write_text
+    real_write_lf = gen_readmes._write_lf
 
-    def fail_midway(self, data, *a, **k):
+    def fail_midway(path, data):
         # 임시 파일에 절반만 쓰고 터진다 — 진짜 위험 경로(쓰기 도중 실패) 재현.
-        real_write(self, data[: len(data) // 2], *a, **k)
+        real_write_lf(path, data[: len(data) // 2])
         raise OSError("디스크가 찼다(모의)")
 
-    monkeypatch.setattr(Path, "write_text", fail_midway)
+    monkeypatch.setattr(gen_readmes, "_write_lf", fail_midway)
     monkeypatch.setattr(sys, "argv", ["gen_readmes.py", "--root", str(tmp_path)])
     rc = gen_readmes.main()
 

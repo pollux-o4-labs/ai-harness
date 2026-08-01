@@ -26,10 +26,14 @@ import ai_harness.check_doc_form as cdf  # noqa: E402
 # 자체를 monkeypatch해야 실제로 읽힌다(fake_repo 픽스처가 담당).
 
 def _write_form(name: str, *, max_lines: int | None = None,
-                 line_chars: int | None = None, bluf_chars: int | None = None) -> None:
+                 line_chars: int | None = None, bluf_chars: int | None = None,
+                 warn_lines: int | None = None) -> None:
     """합성 폼 파일을 cdf.FORM_DIR(현재 monkeypatch된 위치)에 쓴다. 실제 폼과
     같은 문구 관례("N줄 · 산문 한 줄 N자 · BLUF 한 줄 N자")를 쓴다 — "이하"
-    접미사 없이(실제 폼 문구가 그렇다, 버그1)."""
+    접미사 없이(실제 폼 문구가 그렇다, 버그1). `warn_lines`는 경고선 오버라이드
+    문구("경고선 N줄")다 — `max_lines` 뒤에 이어 붙여, 무방비한 MAX_LINES_PATTERN
+    (`(\\d+)줄`)이 앞선 진짜 반려선을 먼저 물게 둔다(회귀: 두 폼에서 실재한
+    중복 매치가 여기서도 나면 안 된다)."""
     parts = []
     if max_lines is not None:
         parts.append(f"{max_lines}줄")
@@ -37,6 +41,8 @@ def _write_form(name: str, *, max_lines: int | None = None,
         parts.append(f"산문 한 줄 {line_chars}자")
     if bluf_chars is not None:
         parts.append(f"BLUF 한 줄 {bluf_chars}자")
+    if warn_lines is not None:
+        parts.append(f"경고선 {warn_lines}줄")
     cdf.FORM_DIR.mkdir(parents=True, exist_ok=True)
     (cdf.FORM_DIR / f"{name}.md").write_text(
         "<!-- 예산: " + " · ".join(parts) + "(마커 제외) -->\n", encoding="utf-8"
@@ -169,6 +175,72 @@ def test_within_line_budget_passes(real_forms):
     """
     doc = _write_doc("docs/rules/x.md", "x\n" * 100)
     assert cdf.check_file(doc) == []
+
+
+# --- 줄 수 2단계 판정(반려선/경고선) ------------------------------------------
+#
+# 경고는 종료 코드 0으로 두고 처방만 낸다 — main()이 위반(violations) 하나로
+# 종료 코드를 정하므로, 경고를 그 목록에 섞으면 exit 1로 샌다. 여기서는
+# check_file_all()의 (위반, 경고) 튜플이 실제로 갈라지는지를 직접 잰다.
+
+def test_warn_stage_default_factor_is_070_of_reject_line(fake_repo):
+    """기본 경고선 = 반려선(100) × 0.7 = 70. 71줄은 경고, 70줄은 무경고."""
+    _write_form("rules", max_lines=100, line_chars=80)
+    over_warn = _write_doc("docs/rules/over.md", "x\n" * 71)
+    at_warn = _write_doc("docs/rules/at.md", "x\n" * 70)
+
+    v, w = cdf.check_file_all(over_warn)
+    assert v == []
+    assert any("71줄 > 70줄" in item and "경고선을 넘었다" in item for item in w)
+
+    v2, w2 = cdf.check_file_all(at_warn)
+    assert v2 == [] and w2 == []  # 경고선 자체는 포함(inclusive) — 넘지 않았다
+
+
+def test_warn_stage_is_silent_once_violation_fires(fake_repo):
+    """반려선을 넘으면 위반만 내고 경고는 겹쳐 내지 않는다(elif — 채널이 갈린다)."""
+    _write_form("rules", max_lines=100, line_chars=80)
+    doc = _write_doc("docs/rules/over.md", "x\n" * 120)
+    v, w = cdf.check_file_all(doc)
+    assert any("120줄 > 100줄" in item for item in v)
+    assert w == []
+
+
+def test_warn_stage_absent_when_no_reject_line_declared(fake_repo):
+    """반려선이 없는 폼(line_chars만 선언)은 경고선도 없다 — 곱할 기준이 없다."""
+    _write_form("rules", line_chars=80)
+    doc = _write_doc("docs/rules/x.md", "x\n" * 500)
+    v, w = cdf.check_file_all(doc)
+    assert w == []
+
+
+def test_warn_stage_form_override_replaces_default_factor(fake_repo):
+    """폼이 `경고선 N줄`을 선언하면 기본 계수(0.7×100=70) 대신 그 값을 쓴다."""
+    _write_form("rules", max_lines=100, line_chars=80, warn_lines=90)
+    below_override = _write_doc("docs/rules/a.md", "x\n" * 80)  # 기본선(70) 넘지만 선언값(90) 안 넘음
+    above_override = _write_doc("docs/rules/b.md", "x\n" * 91)
+
+    _, w_a = cdf.check_file_all(below_override)
+    assert w_a == []  # 기본 계수였다면 경고였을 것 — 오버라이드가 이겼다
+
+    _, w_b = cdf.check_file_all(above_override)
+    assert any("91줄 > 90줄" in item for item in w_b)
+
+
+def test_warn_lines_pattern_requires_anchor_word():
+    """warn_lines 패턴은 "경고선" 낱말이 앞에 있어야 매치한다 — 무방비한
+    MAX_LINES_PATTERN(`(\\d+)줄`)과 같은 실수(두 폼 중복 매치)를 반복하지 않는다."""
+    pat = cdf._BUDGET_PATS["warn_lines"]
+    assert pat.search("아무 문서에나 70줄이라고 쓰여 있다") is None
+    m = pat.search("경고선 70줄")
+    assert m and m.group(1) == "70"
+
+
+def test_production_forms_do_not_declare_warn_override(real_forms):
+    """실제 폼 일곱 개는 아직 아무도 경고선을 오버라이드하지 않는다 — 새로 추가한
+    설명 문구(`경고선 <N>줄`, <N>은 자리표시자)가 실수로 파싱되지 않는지 확인."""
+    for name in ("adr", "agent-def", "agents", "features", "handoff", "history", "rules"):
+        assert cdf.load_budgets(name).get("warn_lines") is None
 
 
 def test_empty_file_passes_without_crash(real_forms):
@@ -402,6 +474,21 @@ def test_sentence_rule_excludes_decimals_paths_numbers(real_forms):
     assert sentence_violations == []
 
 
+def test_sentence_rule_detects_question_mark_terminator(real_forms):
+    """물음표 뒤 다음 문장도 종결로 잡는다 — 마침표만 보던 게 미검출이었다
+    (실측: src/ai_harness/agents/reviewer-direction.md에 이 유형이 있었다)."""
+    doc = _write_doc("docs/rules/x.md", "짧다\n그런가? 아니다.\n짧다\n")
+    violations = cdf.check_file(doc)
+    assert any("문장이 여럿" in v for v in violations)
+
+
+def test_sentence_rule_detects_exclamation_mark_terminator(real_forms):
+    """느낌표 뒤 다음 문장도 종결로 잡는다."""
+    doc = _write_doc("docs/rules/x.md", "짧다\n끝났다! 다음이다.\n짧다\n")
+    violations = cdf.check_file(doc)
+    assert any("문장이 여럿" in v for v in violations)
+
+
 def test_heading_exempt_from_sentence_rule(real_forms):
     """헤딩(`## A. 환경`)의 `A.`는 문장 끝이 아니다 — 구조 라벨이라 문장
     규칙에서 뺀다. 숫자 라벨과 달리 문자 라벨은 앞자리 숫자 배제로 안 걸러진다."""
@@ -569,6 +656,41 @@ def test_staged_bloat_not_reported_on_pure_deletion_even_if_still_over_budget(fa
     assert not any("비대" in v for v in cdf.check_staged(doc))
 
 
+# --- 경고도 같은 문자-순증 스코프를 진다 --------------------------------------
+
+def test_staged_warn_stage_scoped_by_char_delta_like_bloat_violation(fake_repo):
+    """경고선 경고도 위반과 같은 규율을 진다 — 문자 순증이 없는 순수 쪼개기는
+    보고하지 않는다. 9단어 한 줄을 9줄로 쪼개면 줄 수는 경고선(8)을 넘지만
+    (문자는 오히려 공백만큼 줄어) char_delta<=0이라 이번 커밋자 탓이 아니다."""
+    _write_form("rules", max_lines=12, line_chars=80)  # 기본 경고선 = round(12*0.7) = 8
+    words = ["가나다", "라마바", "사아자", "자차카", "카파타", "파하가", "하나다", "나다라", "다라마"]
+    doc = _seed_repo("docs/rules/x.md", " ".join(words) + "\n")  # 1줄 — 경고선 미만
+    doc.write_text("\n".join(words) + "\n", encoding="utf-8")     # 9줄 — 경고선(8) 초과
+    _rungit("add", "docs/rules/x.md")
+
+    _, staged_w = cdf.check_staged_all(doc)
+    assert staged_w == []  # 문자 순증 없음(오히려 감소) — 유예
+
+    # 대조: 같은 콘텐츠를 통짜 파일로 보면(스테이징 스코프 없이) 경고가 실제로 난다
+    # — 위 유예가 "애초에 안 걸려서"가 아니라 "스코프 필터가 걸러서"임을 확인.
+    fresh = _write_doc("docs/rules/fresh.md", "\n".join(words) + "\n")
+    _, full_w = cdf.check_file_all(fresh)
+    assert any("경고선을 넘었다" in item for item in full_w)
+
+
+def test_staged_warn_stage_reported_when_content_actually_grows(fake_repo):
+    """내용이 실제로 늘어(문자 순증 양수) 경고선을 새로 넘기면 스테이징 스코프에서도
+    경고를 낸다 — 위 유예가 전부 억누르는 게 아님을 확인."""
+    _write_form("rules", max_lines=12, line_chars=80)  # 기본 경고선 8
+    doc = _seed_repo("docs/rules/x.md", "가나다\n")  # 1줄
+    doc.write_text(
+        "\n".join(f"새로 추가한 문장 {i}" for i in range(9)) + "\n", encoding="utf-8",
+    )  # 9줄, 문자 수도 크게 증가
+    _rungit("add", "docs/rules/x.md")
+    _, staged_w = cdf.check_staged_all(doc)
+    assert any("경고선을 넘었다" in item for item in staged_w)
+
+
 def test_staged_reads_index_not_worktree(real_forms):
     """스테이징 후 워킹트리를 더 고쳐 줄번호가 어긋나도, 커밋될 내용(인덱스)의
     위반을 잡는다. 워킹트리를 읽으면 좌표계가 갈라져 fail-open(적대검증 재현)."""
@@ -679,6 +801,15 @@ def test_unclosed_fence_exempts_rest_of_file(real_forms):
     assert cdf.check_file(doc) == []
 
 
+def test_tilde_fence_content_exempt_from_line_length(real_forms):
+    """틸드(`~~~`) 코드펜스도 백틱과 같은 CommonMark 펜스다 — 안의 긴 줄이
+    산문으로 오검사되면 안 된다(실측 결함: relink_docs.py는 이미 둘 다
+    받는데 이 게이트만 백틱만 인식해 판정이 갈렸다)."""
+    content = "~~~\n" + ("x" * 90) + "\n~~~\n"
+    doc = _write_doc("docs/rules/x.md", content)
+    assert cdf.check_file(doc) == []
+
+
 # --- 마크다운 링크 URL 길이 면제 ---------------------------------------------
 # 결정테이블(축: URL길이·라벨길이·URL내공백·문장수):
 #   URL길다·라벨짧다·공백없음  → 길이 통과(면제)          [지금 RED]
@@ -752,6 +883,34 @@ def test_whitelist_defaults_to_empty():
     """WHITELIST는 비어 있는 게 기본 — 면제 문서 없음(의도된 상태).
     누군가 조용히 항목을 미리 채워두면 이 테스트가 깨진다."""
     assert cdf.WHITELIST == frozenset()
+
+
+def test_extra_whitelist_path_is_exempt(real_forms, monkeypatch):
+    """gate_config.EXTRA_WHITELIST에 등재된 경로도 면제된다 — 대상 저장소가
+    자기 gate_config.py에 등재하는 통로가 실제로 판정에 반영되는지 본다."""
+    doc = _write_doc("docs/rules/x.md", ("가" * 200) + "\n")
+    assert cdf.check_file(doc) != []  # 등재 전엔 리젝됨을 먼저 확인
+    monkeypatch.setattr(cdf, "EXTRA_WHITELIST", frozenset({doc.as_posix()}))
+    assert cdf.check_file(doc) == []
+
+
+def test_whitelist_and_extra_whitelist_are_a_union(real_forms, monkeypatch):
+    """WHITELIST·EXTRA_WHITELIST 어느 쪽에 등재돼도 면제된다(합집합) — 등재
+    안 된 경로는 여전히 리젝된다."""
+    listed_a = _write_doc("docs/rules/a.md", ("가" * 200) + "\n")
+    listed_b = _write_doc("docs/rules/b.md", ("나" * 200) + "\n")
+    unlisted = _write_doc("docs/rules/c.md", ("다" * 200) + "\n")
+    monkeypatch.setattr(cdf, "WHITELIST", frozenset({listed_a.as_posix()}))
+    monkeypatch.setattr(cdf, "EXTRA_WHITELIST", frozenset({listed_b.as_posix()}))
+    assert cdf.check_file(listed_a) == []
+    assert cdf.check_file(listed_b) == []
+    assert cdf.check_file(unlisted) != []
+
+
+def test_extra_whitelist_defaults_to_empty():
+    """EXTRA_WHITELIST도 WHITELIST와 같이 비어 있는 게 기본 — 대상 저장소가
+    등재하지 않으면 core 판정에 아무 영향이 없다."""
+    assert cdf.EXTRA_WHITELIST == frozenset()
 
 
 # --- 유형 판정 · 폼 없는 유형의 fallback --------------------------------------
@@ -892,6 +1051,61 @@ def test_main_exit_one_when_violations(real_forms):
     assert cdf.main([str(doc)]) == 1
 
 
+# --- 폴더 파일 수 경고 ---------------------------------------------------------
+#
+# 반려는 없다 — 개수만 통지한다(topic-folders 규칙 제1조는 그룹핑 여부를
+# 사람 판정으로 남긴다). main()이 폴더 단위로 한 번만 세는지도 함께 잰다.
+
+def test_folder_file_count_warning_silent_at_threshold(real_forms, capsys):
+    for i in range(10):  # 경고선(10) 이하 — 경고 없음
+        _write_doc(f"docs/rules/f{i}.md", "짧다\n")
+    rc = cdf.main([str(Path("docs/rules/f0.md"))])
+    assert rc == 0
+    assert capsys.readouterr().err == ""
+
+
+def test_folder_file_count_warning_fires_over_threshold(real_forms, capsys):
+    for i in range(11):  # 경고선(10) 초과
+        _write_doc(f"docs/rules/f{i}.md", "짧다\n")
+    rc = cdf.main([str(Path("docs/rules/f0.md"))])
+    assert rc == 0  # 경고는 반려하지 않는다
+    err = capsys.readouterr().err
+    assert "11개다" in err
+    assert "토픽이 갈리는지 보라" in err
+
+
+def test_folder_file_count_warning_deduped_across_batch(real_forms, capsys):
+    """같은 폴더의 파일 둘을 함께 넘겨도 폴더 경고는 한 번만 난다."""
+    paths = [str(_write_doc(f"docs/rules/f{i}.md", "짧다\n")) for i in range(11)]
+    rc = cdf.main(paths[:2])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert err.count("문서가") == 1
+
+
+def test_main_warning_header_distinct_from_reject_header(real_forms, capsys):
+    """경고 헤더는 "리젝" 어휘를 재사용하지 않는다 — exit 0인데 실패로 읽히면 안 된다."""
+    for i in range(11):
+        _write_doc(f"docs/rules/f{i}.md", "짧다\n")
+    rc = cdf.main([str(Path("docs/rules/f0.md"))])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "경고" in err
+    assert "리젝" not in err
+
+
+def test_main_prints_both_sections_when_violation_and_warning_coexist(real_forms, capsys):
+    """위반이 있으면(exit 1) 경고 절과 리젝 절이 둘 다, 다른 헤더로 출력된다."""
+    for i in range(11):
+        _write_doc(f"docs/rules/f{i}.md", "짧다\n")  # 폴더 경고 유발
+    bad = _write_doc("docs/rules/bad.md", ("가" * 200) + "\n")  # 줄 길이 위반
+    rc = cdf.main([str(bad)])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "문서 폼 경고" in err
+    assert "문서 폼 리젝" in err
+
+
 # --- --staged 모드 ------------------------------------------------------------
 #
 # staged_markdown()은 실제 git 인덱스(git diff --cached)를 읽으므로 유닛테스트가
@@ -955,6 +1169,53 @@ def test_staged_rejects_when_staged_md_violates(tmp_path):
 
     result = _run_staged(repo)
     assert result.returncode == 1
+
+
+def test_staged_extra_whitelist_path_is_exempt(tmp_path):
+    """--staged 경로(check_staged)도 check_file과 같은 합집합을 본다 —
+    EXTRA_WHITELIST가 두 사용처 중 한쪽에서만 빠지는 회귀를 잡는다."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _copy_forms(repo)
+    (repo / "docs" / "rules").mkdir(parents=True)
+    (repo / "docs" / "rules" / "bad.md").write_text(("가" * 200) + "\n", encoding="utf-8")
+    _git(repo, "add", "docs/rules/bad.md")
+    (repo / "gate_config.py").write_text(
+        'EXTRA_WHITELIST = frozenset({"docs/rules/bad.md"})\n', encoding="utf-8"
+    )
+
+    result = _run_staged(repo)
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_overlay_extra_whitelist_applies_via_subprocess(tmp_path):
+    """오버레이 경로 자체(config.py가 EXTRA_WHITELIST를 실제로 읽는가)를 본다.
+
+    in-process monkeypatch는 check_doc_form이 이미 임포트된 뒤라 config.py의
+    오버레이(`apply_target_config`)를 실행하지 못한다(프로세스당-1회 가드,
+    tests/test_config.py 참고) — 그래서 설치된 CLI를 서브프로세스로 돌려
+    gate_config.py 파일이 실제로 로드·오버레이되는 경로를 검증한다."""
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    _copy_forms(repo)
+    (repo / "docs" / "rules").mkdir(parents=True)
+    bad = repo / "docs" / "rules" / "bad.md"
+    bad.write_text(("가" * 200) + "\n", encoding="utf-8")
+
+    r_before = subprocess.run(
+        ["ai-harness", "check-doc", "docs/rules/bad.md"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    assert r_before.returncode != 0, "면제 등재 전엔 core 기본값(빈 목록)으로 리젝돼야 한다"
+
+    (repo / "gate_config.py").write_text(
+        'EXTRA_WHITELIST = frozenset({"docs/rules/bad.md"})\n', encoding="utf-8"
+    )
+    r_after = subprocess.run(
+        ["ai-harness", "check-doc", "docs/rules/bad.md"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    assert r_after.returncode == 0, r_after.stdout + r_after.stderr
 
 
 # --- pre-commit 배선(git 훅) 자체 회귀 ----------------------------------------

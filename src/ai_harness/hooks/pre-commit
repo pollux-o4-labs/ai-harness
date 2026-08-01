@@ -2,8 +2,10 @@
 # 목적: 커밋 전 문서 게이트 3종 — 설치된 ai-harness CLI로 실행한다.
 #   (1) ai-harness check-doc --staged — 스테이징된 .md가 문서 폼
 #       (docs_format/<유형>.md) 줄 예산을 지키는지.
-#   (2) ai-harness gen-readmes --check — 자동생성 인덱스(BLUF-INDEX)가 원본과
-#       어긋나지 않는지(수기 편집·미갱신 0). 어긋나면 커밋을 막는다.
+#   (2) ai-harness gen-readmes --check --staged — 자동생성 인덱스(BLUF-INDEX)가
+#       원본과 어긋나지 않는지(수기 편집·미갱신 0), 이번 커밋이 바꿀 수 있는
+#       폴더로 좁혀서. 전체 스캔이면 무관한 병렬 레인의 어긋남까지 이 커밋을
+#       막는다 — 어긋나면 커밋을 막는다.
 #   (3) ai-harness gen-pr-template --check — org PR 템플릿이 REQUIRED_CHECKS 등
 #       정본 생성물과 어긋나지 않는지. **단, 이 저장소가 그 템플릿 파일을 아예
 #       안 쓰면(파일 없음) 검사 자체를 건너뛴다** — 강제하면 PR 템플릿 기능을
@@ -30,7 +32,7 @@ ai-harness check-doc --staged
 # 종료코드로 경우를 가른다. 1(인덱스 어긋남)에만 여기서 처방을 덧붙이고, 나머지
 # 비영 코드(손글씨·마커 중복·쓰기 실패)는 gen-readmes가 이미 처방까지 출력하므로
 # 그대로 통과시킨다 — 같은 규범을 두 곳에 두면 갈라진다.
-ai-harness gen-readmes --check || rc=$?
+ai-harness gen-readmes --check --staged || rc=$?
 if [ "${rc:-0}" -eq 1 ]; then
     cat >&2 <<'MSG'
 

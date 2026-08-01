@@ -1,6 +1,6 @@
 [project]
 name = "ai-harness"
-version = "0.1.0"
+version = "0.2.0"
 description = "레포 공용 pre-commit·PR 문서 게이트 (stdlib only)"
 requires-python = ">=3.9"
 dependencies = []

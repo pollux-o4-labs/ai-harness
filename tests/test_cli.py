@@ -82,3 +82,14 @@ def test_dispatch_does_not_touch_global_argv(monkeypatch, capsys):
         cli.main(["check-pr", "--help"])
     capsys.readouterr()
     assert sys.argv == original, "도움말 경로에서 전역 인자가 바뀌었다"
+
+
+def test_version_flag_reports_installed_version(capsys):
+    """설치된 판을 물을 수단 — 설치한 저장소가 "지금 어느 판인가"를 알아야
+    결함 보고와 재현이 가능하다. 값은 빌드 설정이 정본이고 코드에 상수로
+    다시 적지 않는다(두 자리에 두면 손으로 맞춰야 한다)."""
+    from importlib.metadata import version
+
+    for flag in ("--version", "-V"):
+        assert cli.main([flag]) == 0
+        assert capsys.readouterr().out.strip() == version("ai-harness")

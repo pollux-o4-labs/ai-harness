@@ -27,6 +27,12 @@ _COMMANDS: tuple[tuple[str, str, bool, str], ...] = (
         True,
         "ai_harness.gen_pr_template",
     ),
+    (
+        "check-git-state",
+        "미커밋을 지우는 git 명령 차단(링크 워크트리 한정)",
+        True,
+        "ai_harness.check_git_state",
+    ),
     ("install-hooks", "git 훅 설치", False, "ai_harness.install_hooks"),
     (
         "install-agents",
@@ -40,6 +46,18 @@ _COMMANDS: tuple[tuple[str, str, bool, str], ...] = (
         False,
         "ai_harness.install_rules",
     ),
+    (
+        "relink-docs",
+        "토픽 폴더 재편 시 마크다운 링크 재작성·--check로 깨진 링크 스캔",
+        False,
+        "ai_harness.relink_docs",
+    ),
+    (
+        "gen-agents-common",
+        "AGENTS.md의 공용 안내 블록 주입(--check로 드리프트 감시)",
+        True,
+        "ai_harness.gen_agents_common",
+    ),
 )
 
 # 게이트 서브커맨드 이름 집합 — 대상 저장소의 gate_config가 끌 수 있는 대상.
@@ -52,7 +70,7 @@ def _build_usage() -> str:
     """`_COMMANDS`에서 usage 텍스트를 렌더 — 이름 열 너비는 가장 긴 이름에
     맞춰 자동으로 정렬된다(하드코딩된 칸 수 없음)."""
     width = max(len(name) for name, *_ in _COMMANDS)
-    lines = ["ai-harness <command> [args...]", "", "commands:"]
+    lines = ["ai-harness <command> [args...]", "", "  -V, --version  설치된 판", "", "commands:"]
     lines.extend(f"  {name:<{width}}  {help_text}" for name, help_text, *_ in _COMMANDS)
     return "\n".join(lines) + "\n"
 
@@ -64,6 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in ("-h", "--help"):
         print(_USAGE)
+        return 0
+    if args[0] in ("-V", "--version"):
+        # 설치본에서 판을 읽는다 — 소스에 상수로 또 적지 않는다. 두 자리에
+        # 두면 손으로 맞춰야 하고, 읽는 코드가 없으면 어긋나도 안 걸린다.
+        # 설치된 저장소가 "지금 어느 판을 쓰는가"를 물을 유일한 수단이다.
+        from importlib.metadata import version
+        print(version("ai-harness"))
         return 0
     cmd, rest = args[0], args[1:]
 

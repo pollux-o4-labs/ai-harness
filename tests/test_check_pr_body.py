@@ -10,7 +10,6 @@ from __future__ import annotations
 import io
 import json
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -162,6 +161,25 @@ def test_multiple_sentences_in_section_rejected():
 def test_sentence_rule_ignores_code_fence_and_decimals():
     """검증 커맨드·소수는 문장 종결이 아니다 — GOOD_BODY가 그대로 통과한다."""
     assert not any("문장이 여럿" in v for v in cpb.check_pr_body(GOOD_BODY))
+
+
+def test_sentence_rule_detects_question_mark_terminator():
+    """물음표 뒤 다음 문장도 종결로 잡는다 — 마침표만 보던 게 미검출이었다
+    (실측: reviewer-direction.md에 이 유형 문장 경계가 있었다)."""
+    body = GOOD_BODY.replace(
+        "서버측 백스톱(GitHub Actions)은 안 넣음 — 새는 사례 관측되면 그때.",
+        "그런가? 아니다.",
+    )
+    assert any("문장이 여럿" in v for v in cpb.check_pr_body(body))
+
+
+def test_sentence_rule_detects_exclamation_mark_terminator():
+    """느낌표 뒤 다음 문장도 종결로 잡는다."""
+    body = GOOD_BODY.replace(
+        "서버측 백스톱(GitHub Actions)은 안 넣음 — 새는 사례 관측되면 그때.",
+        "끝났다! 다음이다.",
+    )
+    assert any("문장이 여럿" in v for v in cpb.check_pr_body(body))
 
 
 # --- 확인 체크리스트 --------------------------------------------------------
@@ -435,67 +453,6 @@ def test_checkbox_is_self_report_not_evidence():
     assert any("예산" in x or "자 >" in x for x in cpb.check_pr_body(fat))
 
 
-# --- gh 명령에서 본문 추출 --------------------------------------------------
-
-@pytest.mark.parametrize("cmd", [
-    'gh pr create --title t --body-file {p}',
-    'gh pr create --title t --body-file={p}',
-    'gh pr create -F {p}',
-    'cd /repo && gh pr create --body-file {p} --base middle-merge',
-    '/usr/bin/gh pr create --body-file {p}',
-])
-def test_extract_body_from_body_file(tmp_path, cmd):
-    p = tmp_path / "body.md"
-    p.write_text(GOOD_BODY, encoding="utf-8")
-    body, reason = cpb.extract_body_from_command(cmd.format(p=p))
-    assert reason is None
-    assert body == GOOD_BODY
-
-
-def test_extract_body_inline():
-    body, reason = cpb.extract_body_from_command('gh pr create --body "짧은 본문"')
-    assert (body, reason) == ("짧은 본문", None)
-    body, reason = cpb.extract_body_from_command('gh pr create --body=짧은본문')
-    assert (body, reason) == ("짧은본문", None)
-
-
-@pytest.mark.parametrize("cmd", [
-    "git status",
-    "gh issue create --body x",   # pr create 아님
-    "gh pr view 12",
-    "echo 'gh pr create' > note.txt",  # 인접 3토큰이 아님
-])
-def test_non_target_commands_are_not_inspected(cmd):
-    """검사 대상이 아니면 (None, None) — 훅이 통과시켜야 한다."""
-    assert cpb.extract_body_from_command(cmd) == (None, None)
-
-
-def test_uninspectable_call_is_fail_closed():
-    """본문을 못 들여다보는 호출은 리젝 사유가 붙는다(우회 차단)."""
-    body, reason = cpb.extract_body_from_command("gh pr create --fill")
-    assert body is None and reason is not None
-
-
-def test_missing_body_file_is_fail_closed(tmp_path):
-    body, reason = cpb.extract_body_from_command(
-        f"gh pr create --body-file {tmp_path / 'nope.md'}"
-    )
-    assert body is None and "경로 없음" in reason
-
-
-@pytest.mark.parametrize("raw", ["$SC/body.md", "~/body.md", "`pwd`/body.md", "b*.md"])
-def test_shell_expansion_in_path_says_so(raw):
-    """쉘 확장은 훅이 못 푼다 — "경로 없음"으로 뭉뚱그리면 오탐이 된다.
-
-    회귀: `--body-file $SC/body.md`가 본문이 멀쩡한데도 "경로 없음"으로 리젝됐다.
-    훅은 확장 **전** 명령 문자열을 받으므로 `$VAR`을 영영 풀 수 없다. 막는 것
-    자체는 맞으나(fail-closed), 이유를 틀리게 말하면 저자가 게이트를 지운다.
-    """
-    body, reason = cpb.extract_body_from_command(f"gh pr create --body-file {raw}")
-    assert body is None
-    assert "쉘 확장" in reason and "리터럴" in reason
-
-
 # --- 훅 exit 코드 -----------------------------------------------------------
 
 def _run_hook(monkeypatch, command: str) -> int:
@@ -554,21 +511,21 @@ def _stub_fetch(monkeypatch, *, body: str | None = None, reason: str | None = No
         if comments is None:
             comments = [{"body": f"## 리뷰 종합 — 1차 ({head_sha})\n\n근거."}]
         data = {"body": body, "comments": comments, "headRefOid": head_sha}
-    monkeypatch.setattr(cpb, "_fetch_pr_body", lambda identifier: (data, reason))
+    monkeypatch.setattr(cpb, "_fetch_pr_body", lambda identifier, repo=None: (data, reason))
 
 
-@pytest.mark.parametrize("argv,expected", [
-    (["gh", "pr", "merge", "42"], "42"),
-    (["gh", "pr", "merge"], None),  # 생략 — 현재 브랜치를 gh가 추론
-    (["gh", "pr", "merge", "--squash", "--delete-branch"], None),
-    (["gh", "pr", "merge", "--subject", "메시지", "42"], "42"),
-    (["gh", "pr", "merge", "--subject", "메시지"], None),
-    (["gh", "pr", "merge", "--subject=메시지", "42"], "42"),
-])
-def test_merge_target_extraction(argv, expected):
-    """PR 번호뿐 아니라, --subject/--body 같은 값-소비 플래그의 값을 식별자로
-    오인하지 않아야 한다(안 그러면 정상 머지가 오탐 리젝된다)."""
-    assert cpb._merge_target(argv) == expected
+def _merge_body(command: str) -> tuple[str | None, str | None]:
+    """merge 명령에서 본문만 꺼낸다 — 아래 검사들이 쓰는 시험 전용 헬퍼.
+
+    프로덕션은 스냅샷 전체(`extract_pr_view_from_merge_command`)를 쓰고 본문만
+    꺼내는 경로는 안 부른다. 그래서 그 얇은 래퍼를 프로덕션에서 걷어내고 이
+    자리로 내렸다 — 검사가 단언하던 계약(merge 감지·저장소 전달·본문 추출)은
+    그대로 남는다.
+    """
+    data, reason = cpb.extract_pr_view_from_merge_command(command)
+    if data is None:
+        return None, reason
+    return data["body"], None
 
 
 @pytest.mark.parametrize("cmd", [
@@ -579,23 +536,23 @@ def test_merge_target_extraction(argv, expected):
 ])
 def test_extract_body_from_merge_non_target_commands(cmd):
     """gh pr merge가 아니면 (None, None) — 훅이 통과시켜야 한다."""
-    assert cpb.extract_body_from_merge_command(cmd) == (None, None)
+    assert _merge_body(cmd) == (None, None)
 
 
 def test_extract_body_from_merge_uses_fetch(monkeypatch):
     _stub_fetch(monkeypatch, body=GOOD_BODY)
-    assert cpb.extract_body_from_merge_command("gh pr merge 42") == (GOOD_BODY, None)
+    assert _merge_body("gh pr merge 42") == (GOOD_BODY, None)
 
 
 def test_extract_body_from_merge_passes_identifier_to_fetch(monkeypatch):
     captured: dict[str, str | None] = {}
 
-    def fake_fetch(identifier):
+    def fake_fetch(identifier, repo=None):
         captured["id"] = identifier
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge 42 --squash")
+    _merge_body("gh pr merge 42 --squash")
     assert captured["id"] == "42"
 
 
@@ -603,18 +560,18 @@ def test_extract_body_from_merge_omitted_identifier_passes_none(monkeypatch):
     """PR 번호 생략(현재 브랜치 추론) — gh pr view에 식별자 없이 넘어가야 한다."""
     captured: dict[str, str | None] = {}
 
-    def fake_fetch(identifier):
+    def fake_fetch(identifier, repo=None):
         captured["id"] = identifier
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge --squash")
+    _merge_body("gh pr merge --squash")
     assert captured["id"] is None
 
 
 def test_extract_body_from_merge_fetch_failure_is_fail_closed(monkeypatch):
     _stub_fetch(monkeypatch, reason="gh pr view 실패 — 본문을 못 들여다봄(no pull requests found)")
-    body, reason = cpb.extract_body_from_merge_command("gh pr merge 999")
+    body, reason = _merge_body("gh pr merge 999")
     assert body is None
     assert "못 들여다봄" in reason
 
@@ -714,7 +671,7 @@ def test_hook_does_not_call_merge_fetch_for_pr_create(monkeypatch, tmp_path):
     calls: list[str | None] = []
     monkeypatch.setattr(
         cpb, "_fetch_pr_body",
-        lambda identifier: (calls.append(identifier), (None, "should not be called"))[1],
+        lambda identifier, repo=None: (calls.append(identifier), (None, "should not be called"))[1],
     )
     assert _run_hook(monkeypatch, f"gh pr create --body-file {p}") == 0
     assert calls == []
@@ -909,6 +866,46 @@ def test_review_evidence_missing_form_file_is_fail_closed(monkeypatch):
     assert violations != []
 
 
+# --- 재게시 되풀이(check_review_repeat) --------------------------------------
+#
+# "리뷰 근거가 낡음" 반려의 요구는 재판정이다. 헤더 SHA만 갈아끼운 재게시가
+# 그 반려를 통과로 바꾸던 자리를 막는다(실사고 재현).
+
+_PREV = "## 리뷰 종합 — 1차 (0b56be0)\n\nOK\n\n감독이 직접 재현하여 판정한다."
+
+
+def test_review_repeat_rejects_sha_only_change():
+    """실사고 재현 — 헤더 SHA만 바꾸고 본문이 같으면 리젝."""
+    repost = _PREV.replace("0b56be0", "36c867f")
+    violations = cpb.check_review_repeat(repost, [{"body": _PREV}])
+    assert any("직전 리뷰 종합과 본문이 같다" in v for v in violations)
+
+
+def test_review_repeat_passes_when_body_changed():
+    """한 줄이라도 새로 쓰면 통과 — 그러려면 얹힌 커밋을 봐야 한다."""
+    repost = _PREV.replace("0b56be0", "36c867f") + "\n\n#61은 문서 1건이라 판정 유지."
+    assert cpb.check_review_repeat(repost, [{"body": _PREV}]) == []
+
+
+def test_review_repeat_ignores_non_review_comment():
+    """일반 코멘트는 대조 대상이 아니다."""
+    assert cpb.check_review_repeat("그냥 코멘트.", [{"body": _PREV}]) == []
+
+
+def test_review_repeat_passes_on_first_review():
+    """직전 종합이 없으면 대조할 것이 없다 — 첫 판정은 통과."""
+    assert cpb.check_review_repeat(_PREV, [{"body": "무관한 코멘트."}]) == []
+
+
+def test_review_repeat_compares_against_latest_review_only():
+    """중간에 낀 종합이 아니라 가장 최신 종합과 대조한다."""
+    newer = _PREV.replace("0b56be0", "1111111") + "\n\n2차에서 덧붙인 판정."
+    comments = [{"body": _PREV}, {"body": newer}]
+    repost = newer.replace("1111111", "2222222")
+    violations = cpb.check_review_repeat(repost, comments)
+    assert any("직전 리뷰 종합과 본문이 같다" in v for v in violations)
+
+
 # --- --merge-check dry-run ---------------------------------------------------
 #
 # `gh pr merge`를 부르지 않는다 — check_merge_readiness의 3종 판정(체크리스트
@@ -991,6 +988,18 @@ def test_comment_long_line_rejected():
 def test_comment_multiple_sentences_rejected():
     """한 줄에 문장 둘(마침표 뒤 문장이 이어짐)이면 리젝 — 한 줄 한 문장."""
     body = GOOD_COMMENT + "- 첫 사항이다. 둘째 사항이 한 줄에 붙었다.\n"
+    assert any("문장이 여럿" in v for v in cpb.check_comment(body))
+
+
+def test_comment_multiple_sentences_with_question_mark_rejected():
+    """물음표 뒤 문장이 이어져도 리젝 — 마침표만 보던 것의 회귀 시험."""
+    body = GOOD_COMMENT + "- 그런가? 아니다.\n"
+    assert any("문장이 여럿" in v for v in cpb.check_comment(body))
+
+
+def test_comment_multiple_sentences_with_exclamation_mark_rejected():
+    """느낌표 뒤 문장이 이어져도 리젝."""
+    body = GOOD_COMMENT + "- 끝났다! 다음이다.\n"
     assert any("문장이 여럿" in v for v in cpb.check_comment(body))
 
 
@@ -1078,6 +1087,22 @@ def test_comment_code_fence_line_exempt():
     assert cpb.check_comment(GOOD_COMMENT + fenced) == []
 
 
+def test_comment_tilde_fence_line_exempt():
+    """틸드(`~~~`) 펜스도 백틱과 같은 CommonMark 펜스다 — 안의 긴 줄·문장
+    여럿이 면제되지 않으면 백틱과 판정이 갈린다(실측 결함, check_doc_form.py와
+    같은 결함이 이 파일에도 복제돼 있다)."""
+    fenced = "~~~\n" + ("x" * 90) + "\n첫 문장이다. 둘째 문장.\n~~~\n"
+    assert cpb.check_comment(GOOD_COMMENT + fenced) == []
+
+
+def test_body_tilde_fence_stripped_like_backtick():
+    """PR 본문 섹션 검사도 틸드 펜스를 벗겨내야 한다 — 코멘트 경로와 다른
+    메커니즘(`strip_code`의 전체 텍스트 치환)이라 따로 단언한다. 한쪽만
+    고치면 같은 문서가 코멘트로는 통과하고 본문으로는 리젝된다."""
+    fenced = "~~~\n" + ("x" * 90) + "\n첫 문장이다. 둘째 문장.\n~~~\n"
+    assert cpb.check_sentences({"요약": fenced}) == []
+
+
 def test_comment_too_many_lines_rejected():
     """40줄(폼 예산) 초과 코멘트는 총량 위반으로 리젝된다."""
     lines_max = cpb.load_comment_budgets()["max_lines"]
@@ -1094,45 +1119,6 @@ def test_comment_budget_missing_form_is_fail_closed(monkeypatch):
     """폼 파일을 못 찾으면 잴 자가 없어서 통과가 아니라 리젝한다(fail-closed)."""
     monkeypatch.setattr(cpb, "_COMMENT_FORM_PATH", Path("/nonexistent/pr-comment.md"))
     assert cpb.check_comment(GOOD_COMMENT) != []
-
-
-@pytest.mark.parametrize("cmd", [
-    'gh pr comment 42 --body-file {p}',
-    'gh pr comment 42 --body-file={p}',
-    'gh pr comment 42 -F {p}',
-    'cd /repo && gh pr comment 42 --body-file {p}',
-])
-def test_extract_body_from_comment_command_file(tmp_path, cmd):
-    p = tmp_path / "comment.md"
-    p.write_text(GOOD_COMMENT, encoding="utf-8")
-    body, reason = cpb.extract_body_from_comment_command(cmd.format(p=p))
-    assert reason is None
-    assert body == GOOD_COMMENT
-
-
-def test_extract_body_from_comment_inline():
-    body, reason = cpb.extract_body_from_comment_command(
-        'gh pr comment 42 --body "짧은 코멘트"'
-    )
-    assert (body, reason) == ("짧은 코멘트", None)
-
-
-@pytest.mark.parametrize("cmd", [
-    "git status",
-    "gh pr create --body x",
-    "gh pr merge 42",
-    "gh issue comment 42 --body x",
-    "gh pr view 42",
-])
-def test_comment_non_target_commands_are_not_inspected(cmd):
-    """검사 대상이 아니면 (None, None) — 훅이 통과시켜야 한다."""
-    assert cpb.extract_body_from_comment_command(cmd) == (None, None)
-
-
-def test_comment_uninspectable_call_is_fail_closed():
-    """본문 플래그 없는 호출(에디터 대화형 등)은 리젝 사유가 붙는다."""
-    body, reason = cpb.extract_body_from_comment_command("gh pr comment 42")
-    assert body is None and reason is not None
 
 
 def test_hook_allows_good_comment(monkeypatch, tmp_path):
@@ -1190,50 +1176,6 @@ def test_wired_hook_blocks_bad_comment(tmp_path, _real_comment_form):
     assert _run_wired_hook(f"gh pr comment 42 --body-file {p}", _REPO_ROOT) == 2
 
 
-# --- CRITICAL: shlex는 셸 구조를 모른다 — 오탐 매칭 자기진단 ------------------
-#
-# 실사고: 파이썬 heredoc 안의 주석 한 줄("# gh pr comment preceded by env
-# assignment")이 shlex.split 결과에서 "gh","pr","comment"가 인접해 gh 호출로
-# 오인됐고, 실제 --body가 없어 exit 2로 리젝됐다(gh를 호출하지도 않은 명령이
-# 막힘). **근본 해결은 불가능하다** — shlex는 진짜 셸 파서가 아니라 주석·
-# heredoc·문자열 안 평문을 구별 못 한다. 대신: (1) --body/--body-file 탐색을
-# 매칭된 gh 호출과 같은 셸 세그먼트로 좁히고(국소성), (2) 리젝 사유에 어떤
-# 토큰을 gh 호출로 인식했는지 노출해 오탐 자기진단 비용을 줄인다.
-
-def test_comment_false_positive_in_prose_is_diagnosable():
-    """오탐(주석 속 평문)은 여전히 리젝되지만(근본 해결 불가), 사유에 매칭
-    위치가 드러나야 한다 — 사람이 즉시 오탐임을 판별할 수 있게."""
-    command = "echo start\n# gh pr comment preceded by env assignment\necho end"
-    body, reason = cpb.extract_body_from_comment_command(command)
-    assert body is None
-    assert reason is not None
-    argv = shlex.split(command)
-    gh_idx = argv.index("gh")
-    assert str(gh_idx) in reason
-    assert repr(argv[gh_idx:gh_idx + 3]) in reason
-
-
-def test_comment_body_flag_before_match_is_not_used(tmp_path):
-    """국소성: 매칭보다 앞선(무관한 다른 명령의) --body-file은 이 gh 호출
-    소속으로 오인해선 안 된다 — 회귀: 예전엔 argv 전체를 인덱스 0부터 스캔해
-    이런 파일 내용을 엉뚱하게 본문으로 썼다."""
-    leftover = tmp_path / "leftover.md"
-    leftover.write_text("- 무관한 내용입니다.\n", encoding="utf-8")
-    command = f"cat --body-file {leftover} && gh pr comment 42"
-    body, reason = cpb.extract_body_from_comment_command(command)
-    assert body is None  # leftover.md 내용을 본문으로 쓰면 안 된다
-    assert reason is not None  # 대신 '본문 없음'으로 fail-closed
-
-
-def test_create_body_flag_after_next_segment_is_not_used(tmp_path):
-    """국소성: 매칭된 gh 호출 뒤 `&&`로 이어진 무관한 다음 명령의 --body도
-    이 호출 소속이 아니다."""
-    command = 'gh pr create 2>/dev/null && echo unrelated --body "엉뚱한 본문"'
-    body, reason = cpb.extract_body_from_command(command)
-    assert body is None
-    assert reason is not None
-
-
 # --- HIGH-1: 미닫힘 코드펜스가 EOF까지 검사를 면제하면 안 된다 ---------------
 
 def test_comment_unterminated_fence_is_not_exempt():
@@ -1265,37 +1207,122 @@ def test_comment_terminated_fence_pair_before_unterminated_one_still_exempt():
 
 
 # --- HIGH-2: 전역 플래그(--repo/-R)가 gh 바로 뒤에 오면 놓친다 ----------------
-
-def test_comment_recognizes_global_repo_flag():
-    """`gh --repo o/r pr comment ...`처럼 전역 플래그가 subcommand 앞에 와도
-    인식해야 한다 — 인접 3토큰 고정 매칭은 이걸 놓쳐 조용히 샌다(무검사 통과)."""
-    body, reason = cpb.extract_body_from_comment_command(
-        'gh --repo owner/repo pr comment 42 --body "짧은 코멘트"'
-    )
-    assert (body, reason) == ("짧은 코멘트", None)
-
-
-def test_create_recognizes_global_repo_flag_short_form(tmp_path):
-    """`-R` 단축형도 같은 함수라 create도 같이 고쳐진다(선재 결함)."""
-    p = tmp_path / "body.md"
-    p.write_text(GOOD_BODY, encoding="utf-8")
-    body, reason = cpb.extract_body_from_command(f"gh -R o/r pr create --body-file {p}")
-    assert reason is None
-    assert body == GOOD_BODY
-
+#
+# 순수 파싱(comment·create 경로)의 같은 회귀는 test_gh_command.py에 있다 —
+# 여기 남는 건 `_fetch_pr_body`까지 값이 실리는지 보는 merge 경로뿐이다.
 
 def test_merge_recognizes_global_repo_flag(monkeypatch):
     """merge도 같은 매칭 함수를 쓰므로 같이 고쳐진다(선재 결함)."""
     captured: dict[str, str | None] = {}
 
-    def fake_fetch(identifier):
+    def fake_fetch(identifier, repo=None):
         captured["id"] = identifier
+        captured["repo"] = repo
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    body, reason = cpb.extract_body_from_merge_command("gh --repo o/r pr merge 42")
+    body, reason = _merge_body("gh --repo o/r pr merge 42")
     assert (body, reason) == (GOOD_BODY, None)
     assert captured["id"] == "42"
+
+
+def test_merge_repo_flag_value_reaches_gh_pr_view(monkeypatch):
+    """회귀: `--repo`를 인식만 하고 값을 버리면 조회가 세션 기준 디렉터리의
+    remote로 새 — 엉뚱한 저장소의 같은 번호 PR을 검사·리젝한다(실사고). 값이
+    `_fetch_pr_body`까지 실려야 한다."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier, repo=None):
+        captured["id"] = identifier
+        captured["repo"] = repo
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    _merge_body("gh pr merge 44 --repo pollux-o4-labs/ai-harness")
+    assert captured["id"] == "44"
+    assert captured["repo"] == "pollux-o4-labs/ai-harness"
+
+
+def test_merge_repo_flag_omitted_passes_none(monkeypatch):
+    """`--repo` 없는 종전 호출은 여전히 repo=None(현재 디렉터리 remote 추론) —
+    단일 저장소 세션의 동작을 깨지 않는다."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier, repo=None):
+        captured["repo"] = repo
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    _merge_body("gh pr merge 42")
+    assert captured["repo"] is None
+
+
+def test_merge_repo_flag_short_form_reaches_gh_pr_view(monkeypatch):
+    """`-R` 단축형도 같은 값 추출 경로를 태운다."""
+    captured: dict[str, str | None] = {}
+
+    def fake_fetch(identifier, repo=None):
+        captured["repo"] = repo
+        return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
+
+    monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
+    _merge_body("gh pr merge 42 -R pollux-o4-labs/ai-harness")
+    assert captured["repo"] == "pollux-o4-labs/ai-harness"
+
+
+def test_fetch_pr_body_includes_repo_flag_when_given(monkeypatch):
+    """`_fetch_pr_body`가 repo를 받으면 실제 `gh pr view` 명령에 `--repo`를
+    싣는다 — 값이 여기까지 와도 gh 호출에 안 실리면 조회는 여전히 새 저장소를
+    본다."""
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0,
+            stdout=json.dumps({"body": GOOD_BODY, "comments": [], "headRefOid": "abc1234"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cpb._fetch_pr_body("44", "pollux-o4-labs/ai-harness")
+    assert calls["cmd"] == [
+        "gh", "pr", "view", "44", "--repo", "pollux-o4-labs/ai-harness",
+        "--json", "body,comments,headRefOid",
+    ]
+
+
+def test_fetch_pr_body_omits_repo_flag_when_none(monkeypatch):
+    """repo=None이면 종전처럼 `--repo`를 안 싣는다(단일 저장소 세션 종전 동작)."""
+    calls = {}
+
+    def fake_run(cmd, **kwargs):
+        calls["cmd"] = cmd
+        return subprocess.CompletedProcess(
+            cmd, 0,
+            stdout=json.dumps({"body": GOOD_BODY, "comments": [], "headRefOid": "abc1234"}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    cpb._fetch_pr_body("44")
+    assert calls["cmd"] == ["gh", "pr", "view", "44", "--json", "body,comments,headRefOid"]
+
+
+def test_merge_check_cli_forwards_repo_flag(monkeypatch):
+    """`--merge-check`도 `--repo`를 받아 같은 조회에 넘긴다(같은 조회를
+    공유한다는 주석이 실제 배선인지 확인)."""
+    captured: dict[str, str | None] = {}
+
+    def fake_check(identifier, repo=None):
+        captured["id"] = identifier
+        captured["repo"] = repo
+        return []
+
+    monkeypatch.setattr(cpb, "check_merge_readiness", fake_check)
+    rc = cpb.main(["--merge-check", "44", "--repo", "pollux-o4-labs/ai-harness"])
+    assert rc == 0
+    assert captured == {"id": "44", "repo": "pollux-o4-labs/ai-harness"}
 
 
 # --- gh pr create 제목 게이트(S5): conventional-commit -----------------------
@@ -1351,62 +1378,6 @@ def test_title_uppercase_type_reported_as_unknown():
     아니라 타입 문제다."""
     violations = cpb.check_pr_title("Fix: 대문자 타입")
     assert any("타입 'Fix' 미지" in v for v in violations)
-
-
-def test_extract_title_finds_long_flag():
-    title, reason = cpb.extract_title_from_command(
-        'gh pr create --title "feat: 새 기능" --body-file f'
-    )
-    assert (title, reason) == ("feat: 새 기능", None)
-
-
-def test_extract_title_finds_short_flag():
-    title, reason = cpb.extract_title_from_command(
-        'gh pr create -t "fix: 버그" --body-file f'
-    )
-    assert (title, reason) == ("fix: 버그", None)
-
-
-def test_extract_title_finds_equals_form():
-    title, reason = cpb.extract_title_from_command(
-        "gh pr create --title=fix:버그 --body-file f"
-    )
-    assert (title, reason) == ("fix:버그", None)
-
-
-def test_extract_title_finds_short_flag_equals_form():
-    """`-t=VALUE`도 파싱한다(회귀 — 리뷰 SHOULD-FIX#1) — 이전엔 못 읽어 제목이
-    실재하는데도 fail-open으로 새는 우회구였다."""
-    title, reason = cpb.extract_title_from_command(
-        "gh pr create -t=fix:버그 --body-file f"
-    )
-    assert (title, reason) == ("fix:버그", None)
-
-
-def test_extract_title_finds_short_flag_attached_form():
-    """`-tVALUE`(공백 없는 붙임꼴)도 파싱한다(회귀 — 리뷰 SHOULD-FIX#1)."""
-    title, reason = cpb.extract_title_from_command(
-        'gh pr create -t"fix: 버그" --body-file f'
-    )
-    assert (title, reason) == ("fix: 버그", None)
-
-
-def test_extract_title_absent_is_not_rejected():
-    """제목 플래그가 없는 create 호출은 (None, None) — fail-open(설계 결정,
-    모듈 docstring 참조)."""
-    assert cpb.extract_title_from_command("gh pr create --body-file f") == (None, None)
-
-
-@pytest.mark.parametrize("cmd", [
-    "git status",
-    "gh pr merge 42 --subject t",
-    "gh pr comment 42 --body x",
-    "gh issue create --title t",
-])
-def test_extract_title_non_create_commands_not_inspected(cmd):
-    """create가 아니면 (None, None) — 훅이 통과시켜야 한다(create 아닌 호출
-    무영향)."""
-    assert cpb.extract_title_from_command(cmd) == (None, None)
 
 
 def test_hook_blocks_bad_title(monkeypatch, tmp_path, capsys):
@@ -1519,3 +1490,6 @@ def test_template_itself_declares_only_known_sections():
     sections = set(re.findall(r"^##\s+(.+?)\s*$", _template_text(), re.M))
     allowed = set(cpb.SECTION_BUDGETS) | {cpb.CHECKLIST_SECTION} | set(cpb.EXEMPT_SECTIONS)
     assert sections <= allowed, f"템플릿에 게이트가 모르는 섹션: {sections - allowed}"
+
+# 셸 연산자 경계(글루드 세미콜론·앰퍼샌드) 순수 파싱 회귀는 test_gh_command.py에
+# 있다 — 이 파일은 훅·조회가 얽힌 검사만 다룬다.

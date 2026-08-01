@@ -10,15 +10,21 @@
 ### 문서
 - `__init__.py` — ai-harness 게이트 패키지 — 설치된 단일 CLI(`ai-harness`)가 이 패키지의 게이트 모듈로 라우팅한다.
 - `check_doc_form.py` — 변경된 .md가 유형별 폼(docs_format/*.md)의 줄 예산을 지키는지 판정하는 룰 게이트(stdlib only, LLM 0) — pre-commit 훅으로 커밋을 리젝한다.
+- `check_git_state.py` — 링크된(2차) 워크트리에서 미커밋 변경을 지우는 git 명령(reset --hard·stash·clean -f·checkout/restore/switch 폐기형)을 실행 전에 막는 Claude Code PreToolUse 가드(stdlib only, LLM 0) — 병렬 슬라이스가 서로의 미커밋을 날리는 병렬 슬라이스 사고를 구조로 차단.
 - `check_pr_body.py` — PR 본문이 필수 섹션을 갖췄고 각 섹션이 글자 예산 안인지, PR 제목이 conventional-commit 형식인지 판정하는 룰 게이트(stdlib only, LLM 0) — Claude Code PreToolUse 훅으로 `gh pr create`·`gh pr merge`를 리젝한다.
 - `cli.py` — ai-harness 게이트 서브커맨드 디스패처 — 설치된 단일 CLI가 각 게이트 모듈의 main으로 라우팅한다(로직은 각 모듈이 정본).
 - `config.py` — 대상 저장소가 어디이고 그 값이 무엇인지를 정하는 곳 — gate_config 오버레이(로드·우아한 실패·1회 가드)와 설치기 대상 경로 판정.
 - `gate_config.py` — 게이트 core(check_pr_body.py·check_doc_form.py)의 repo별 설정값 — 이 파일만 레포마다 다르고 나머지 게이트 코드는 전 레포에서 바이트 동일해야 한다.
+- `gen_agents_common.py` — 모든 저장소가 같이 들고 가야 할 판정 축 문구(정본은 이 패키지)를 대상 AGENTS.md에 마커로 감싸 주입 — `--check`로 어긋남을 게이트한다.
 - `gen_pr_template.py` — check_pr_body.py의 REQUIRED_CHECKS 등 정본 상수에서 `.github/PULL_REQUEST_TEMPLATE.md`를 생성하고, `--check`로 드리프트를 감시하는 게이트(LLM 0, gen_readmes.py --check와 동형).
 - `gen_readmes.py` — 각 폴더 하위 문서/폴더의 BLUF를 모아 README.md의 자동 인덱스 블록만 생성·갱신하는 결정적 스크립트(LLM 0).
+- `gh_command.py` — `gh pr create`·`comment`·`merge` 명령 문자열에서 본문·제목·머지 대상·저장소 값을 뽑는다(stdlib only, gh 문법 전용) — PR 품질 판정(check_pr_body.py)과 무관한 순수 파싱 계층.
 - `install_agents.py` — 패키지에 동봉된 리뷰어 에이전트 템플릿을 대상 저장소의 .claude/agents/(또는 --user면 ~/.claude/agents/)로 복사하는 설치기 — 기존 파일은 안 덮어 저장소 커스터마이즈를 보존한다.
 - `install_hooks.py` — 패키지에 동봉된 git 훅 템플릿을 대상 저장소(git rev-parse)의 .git/hooks/로 멱등 복사·chmod +x 하는 설치기.
 - `install_rules.py` — 패키지에 동봉된 공용 규칙 조문을 대상 저장소의 .claude/rules/(또는 --user면 ~/.claude/rules/)로 복사하는 설치기 — 조문은 정본이라 기존 파일을 덮는다.
-- `line_shapes.py` — 체크박스 줄·이슈 참조 줄의 형태 판정(stdlib only, 의존성 0) — check_pr_body.py와 gate_config.py가 순환 임포트 없이 공유하도록 분리한 모듈.
+- `line_shapes.py` — 산문 형태(shape) 판정 — 펜스·문장 경계·체크박스·이슈 참조·예산 파싱 문법(stdlib only, 의존성 0) — 게이트들이 순환 임포트 없이 공유하는 leaf 모듈.
+- `marker_splice.py` — 마커 쌍으로 감싼 자동생성 블록을 찾고·세고·갈아 끼우는 공유 유틸 — gen_readmes.py에서 뽑았다(README 전용으로 굳어 있던 부분만 인자화).
+- `relink_docs.py` — 토픽 폴더 재편(문서를 폴더로 옮길 때) 시 이동 대상을 가리키던 마크다운 링크를 결정적으로 재작성하고(mv 후), --check로 깨진 상대링크를 스캔하는 유틸(stdlib only, LLM 0).
+- `shell_scan.py` — 셸 명령 문자열의 토큰화와 연산자 경계 분할(stdlib only, 의존성 0) — 두 게이트가 각자 구현하던 것을 한 자리로 모은 모듈.
 
 <!-- BLUF-INDEX:END -->
