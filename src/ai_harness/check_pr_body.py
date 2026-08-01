@@ -57,10 +57,12 @@ PR 본문이 아니다 — 섹션 골격(요약/변경/범위 밖/검증)·체�
 """
 from __future__ import annotations
 
+import enum
 import json
 import re
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 # 레포별 설정(면제 섹션·규칙 인용) — 대상 저장소가 값을 오버레이한다.
@@ -1038,6 +1040,63 @@ def check_merge_readiness(identifier: str | None, repo: str | None = None) -> li
     return violations
 
 
+class HookSubcommand(enum.Enum):
+    """훅이 받은 명령이 `gh pr` 어느 서브커맨드인지 — 값으로 승격한 것.
+
+    이전엔 이 구분이 `(body, reason)` 튜플의 `None` 여부 조합과 `is_merge`
+    참거짓 플래그(한 번 참으로 놓았다가 다음 블록에서 거짓으로 되돌리는 식)에
+    흩어져 있었다. 되돌리기 자체는 결함이 아니었지만(다섯 경로 모두 낙관적으로
+    참을 놓고 아니면 되돌리는 논리로 맞았다), "어느 서브커맨드인가"가 값이
+    아니라 판별 순서에 의존해 흩어져 있었다 — 이 enum이 그 값을 한 곳에
+    묶는다."""
+
+    CREATE = "create"
+    MERGE = "merge"
+    COMMENT = "comment"
+    NONE = "none"  # gh pr create·merge·comment 어느 것도 아님 — 검사 대상 아님
+
+
+@dataclass
+class HookResolution:
+    """`run_hook`이 명령을 판별한 결과 — 서브커맨드 종류와 그에 딸린 본문·리젝
+    사유·머지 스냅샷을 한 값으로 묶는다(판별 순서에 의존하던 상태를 값으로 승격).
+
+    `body`가 None이고 `reason`도 None이면 검사 대상이 아니다(통과). `body`가
+    None이고 `reason`이 있으면 본문을 못 들여다봐 리젝한다(fail-closed). 그
+    밖엔 `body`로 검사를 진행한다 — 이 세 조합은 여전히 유효하다(계약을 바꾸지
+    않았다), 이 값은 그 조합에 "어느 서브커맨드가 이 조합을 냈는가"만 얹는다.
+    """
+
+    kind: HookSubcommand
+    body: str | None = None
+    reason: str | None = None
+    merge_view: dict | None = None
+
+
+def _resolve_hook_command(command: str) -> HookResolution:
+    """`command`가 `gh pr create`·`merge`·`comment` 중 무엇인지, 검사할 본문이
+    무엇인지 판별한다 — create부터 순서대로 시도하고, 앞 서브커맨드가 자기
+    소관이 아니라고 답하면(`(None, None)`) 다음으로 넘어간다."""
+    body, reason = extract_body_from_command(command)
+    if body is not None or reason is not None:
+        return HookResolution(HookSubcommand.CREATE, body=body, reason=reason)
+
+    # gh pr create가 아님 — gh pr merge인지 본다.
+    merge_view, reason = extract_pr_view_from_merge_command(command)
+    if merge_view is not None or reason is not None:
+        body = merge_view["body"] if merge_view is not None else None
+        return HookResolution(
+            HookSubcommand.MERGE, body=body, reason=reason, merge_view=merge_view
+        )
+
+    # gh pr merge도 아님 — gh pr comment인지 본다(셋 다 아니면 NONE).
+    body, reason = extract_body_from_comment_command(command)
+    if body is not None or reason is not None:
+        return HookResolution(HookSubcommand.COMMENT, body=body, reason=reason)
+
+    return HookResolution(HookSubcommand.NONE)
+
+
 def run_hook() -> int:
     """Claude Code PreToolUse 훅. stdin=훅 JSON. exit 2 = 툴 호출 리젝."""
     try:
@@ -1047,41 +1106,27 @@ def run_hook() -> int:
         return 1  # 논블로킹 — 훅 자체 고장으로 작업을 막지는 않는다
 
     command = (payload.get("tool_input") or {}).get("command", "")
-    body, reason = extract_body_from_command(command)
     # create = 리뷰 요청 시점이라 체크리스트 완료를 요구하지 않는다(형식만).
     # merge = 리뷰 끝난 뒤라 체크리스트 전량 + 리뷰 종합 코멘트 존재·신선도까지
     # 요구한다(백스톱, check_review_evidence).
     # comment = PR 본문이 아니라 근거 기록 — 섹션·체크리스트 없이 분량·문장·
     # 용어 풀이만 강제한다(check_comment).
-    is_merge = False
-    is_comment = False
-    merge_view: dict | None = None
-    if body is None and reason is None:
-        # gh pr create가 아님 — gh pr merge인지 본다.
-        merge_view, reason = extract_pr_view_from_merge_command(command)
-        is_merge = True
-        if merge_view is not None:
-            body = merge_view["body"]
-    if body is None and reason is None:
-        # gh pr merge도 아님 — gh pr comment인지 본다(셋 다 아니면 통과).
-        body, reason = extract_body_from_comment_command(command)
-        is_merge = False
-        is_comment = True
+    resolved = _resolve_hook_command(command)
 
-    if body is None:
-        if reason is None:
+    if resolved.body is None:
+        if resolved.kind is HookSubcommand.NONE:
             return 0  # gh pr create·merge·comment 어느 것도 아님 — 검사 대상 아님
-        print(f"[check_pr_body] PR 본문 리젝 — {reason}", file=sys.stderr)
+        print(f"[check_pr_body] PR 본문 리젝 — {resolved.reason}", file=sys.stderr)
         return 2
 
-    if is_comment:
-        violations = check_comment(body)
+    if resolved.kind is HookSubcommand.COMMENT:
+        violations = check_comment(resolved.body)
         if violations:
-            _report_comment(violations, body)
+            _report_comment(violations, resolved.body)
             return 2
         return 0
 
-    if not is_merge:
+    if resolved.kind is HookSubcommand.CREATE:
         # create만 — 제목 conventional-commit 게이트(S5). merge는 이미 만들어진
         # PR을 가리킬 뿐 제목을 새로 짓지 않으므로 검사 대상이 아니다.
         title, _ = extract_title_from_command(command)
@@ -1091,15 +1136,17 @@ def run_hook() -> int:
                 _report_title(title_violations, title)
                 return 2
 
-    violations = check_pr_body(body, require_checklist_complete=is_merge)
-    if is_merge and merge_view is not None:
+    is_merge = resolved.kind is HookSubcommand.MERGE
+    violations = check_pr_body(resolved.body, require_checklist_complete=is_merge)
+    if is_merge and resolved.merge_view is not None:
         # 백스톱: 체크리스트가 전량 체크돼도 리뷰 종합 코멘트가 없거나 낡았으면
         # 여전히 리젝한다(check_review_evidence를 훅이 처음 강제).
         violations = violations + check_review_evidence(
-            merge_view.get("comments") or [], merge_view.get("headRefOid") or ""
+            resolved.merge_view.get("comments") or [],
+            resolved.merge_view.get("headRefOid") or "",
         )
     if violations:
-        _report(violations, body)
+        _report(violations, resolved.body)
         return 2
     return 0
 
