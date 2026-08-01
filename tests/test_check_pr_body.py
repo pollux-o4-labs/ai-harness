@@ -1116,6 +1116,14 @@ def test_comment_tilde_fence_line_exempt():
     assert cpb.check_comment(GOOD_COMMENT + fenced) == []
 
 
+def test_body_tilde_fence_stripped_like_backtick():
+    """PR 본문 섹션 검사도 틸드 펜스를 벗겨내야 한다 — 코멘트 경로와 다른
+    메커니즘(`strip_code`의 전체 텍스트 치환)이라 따로 단언한다. 한쪽만
+    고치면 같은 문서가 코멘트로는 통과하고 본문으로는 리젝된다."""
+    fenced = "~~~\n" + ("x" * 90) + "\n첫 문장이다. 둘째 문장.\n~~~\n"
+    assert cpb.check_sentences({"요약": fenced}) == []
+
+
 def test_comment_too_many_lines_rejected():
     """40줄(폼 예산) 초과 코멘트는 총량 위반으로 리젝된다."""
     lines_max = cpb.load_comment_budgets()["max_lines"]

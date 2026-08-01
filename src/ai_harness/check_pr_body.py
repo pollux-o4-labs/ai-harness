@@ -148,7 +148,12 @@ _REVIEW_LABELS_PAT = re.compile(r"등급 라벨\(닫힌 집합\):\s*(.+?)\.")
 
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _H2 = re.compile(r"^##\s+(.+?)\s*$")
-_FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
+# 펜스 블록을 통째로 벗겨내는 전체 텍스트 치환 — 줄 단위 토글인
+# `is_fence_line`과 매칭 단위가 달라 그 함수로 대체하지 못한다(이쪽은 여는
+# 펜스와 닫는 펜스의 짝을 정규식 하나로 찾는다). 다만 백틱·틸드 둘 다 받아야
+# 하는 것은 같다 — 한쪽만 알면 같은 문서가 코멘트로는 통과하고 본문으로는
+# 리젝된다. `is_fence_line`과 같은 수준이며 펜스 길이 일치는 검사하지 않는다.
+_FENCED_CODE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
 # 코멘트 줄 검사용 펜스 토글은 is_fence_line(line_shapes.py)을 쓴다 — 정본·
 # 한계는 그쪽 참고.
