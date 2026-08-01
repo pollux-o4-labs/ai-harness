@@ -14,6 +14,12 @@
   ai-harness check-doc FILE...   # 지정 파일 검사(exit 1 = 위반)
   ai-harness check-doc --staged  # 스테이징된 .md만(pre-commit)
 
+**판정은 2단계다** — 반려(exit 1)와 경고(exit 0, 처방만 출력)는 다른 채널로
+나른다. 줄 수는 경고선(기본은 반려선의 일정 비율, 정본은 `_WARN_LINE_FACTOR`)을
+넘으면 경고하고 반려선을 넘으면 반려한다. 한 폴더의 `.md` 개수가 경고선을
+넘어도 경고한다(반려는 없다) — 둘 다 사람에게 조기 신호를 주는 것이 목적이고
+그 신호로 무엇을 할지는 사람이 정한다.
+
 **레포별 설정은 `gate_config.py`에 있다** — 이 판정의 근거 조문을 리젝 메시지에
 인용할지는 `gate_config.RULE_DOC_AUTHORING`이 정한다(문서 저작 규칙 문서가
 없는 저장소는 공란이라 인용이 생략된다).
@@ -44,17 +50,47 @@ FORM_DIR = Path(__file__).resolve().parent / "docs_format"
 
 # 폼에서 예산을 뽑는 패턴. 폼이 정본이므로 수치는 코드에 없다. line_chars·
 # max_lines는 check_pr_body.py의 코멘트 예산과 문구 관례가 같아
-# line_shapes.py의 공유 정본을 쓴다 — bluf_chars는 이 파일에서만 소비돼
-# 여기 남는다(line_shapes.extract_budgets 참고).
+# line_shapes.py의 공유 정본을 쓴다 — bluf_chars·warn_lines는 이 파일에서만
+# 소비돼 여기 남는다(line_shapes.extract_budgets 참고).
 _BUDGET_PATS = {
     "line_chars": LINE_CHARS_PATTERN,
     "max_lines": MAX_LINES_PATTERN,
     "bluf_chars": re.compile(r"BLUF 한 줄 (\d+)자"),
+    # 경고선 오버라이드 — 기본은 반려선(max_lines)에 _WARN_LINE_FACTOR를 곱한
+    # 값이다. 폼이 이 문구로 직접 선언하면 그 값이 기본 계수를 이긴다. 앵커
+    # 낱말 "경고선"이 고유해 무방비한 MAX_LINES_PATTERN(`(\d+)줄`)과 같은
+    # 자리를 물지 않는다(두 폼에서 이미 실재한 중복 매치 회귀 참고).
+    "warn_lines": re.compile(r"경고선 (\d+)줄"),
 }
 
 # 줄 예산은 전 .md 공통 위생이다 — 유형 폼이 없어도 적용한다.
 # 유형 폼이 있으면 그쪽 수치가 이긴다.
 _GLOBAL_FORM = "rules"
+
+# 경고선 계수 — 폼이 직접 선언하지 않았을 때 반려선(max_lines)에 곱해 기본
+# 경고선을 낸다. 정본은 이 상수 하나뿐이다(폼 아홉 곳에 재서술 금지).
+#
+# **정직 표기**: 이 값은 첫 근사치다. rules 폼의 반려선 100과 handoff 폼의
+# 150 비율(100/150 ≈ 0.667)을 0.7로 반올림했을 뿐이고, 그 비율이 다른 유형
+# 쌍에도 성립한다는 근거는 없다. 경고가 너무 이르게 울면(압축할 여지가 없는
+# 문서에도 뜬다) 계수를 올리고, 너무 늦게 울면(반려 직전에야 뜬다) 내린다 —
+# 그런 관측이 실제로 나오는 시점이 재판정 시점이다. 그 전까지는 유지한다.
+_WARN_LINE_FACTOR = 0.7
+
+# 총량성 메시지(위반·경고 둘 다) 판정 태그 — `check_staged_all`이 이 태그로
+# "문서 전체 크기" 메시지를 골라내 문자 순증(char_delta > 0)일 때만 남긴다.
+# 안 건드린 비대함까지 커밋자에게 떠넘기지 않기 위해서다. 메시지 본문에 이
+# 태그를 그대로 심어(아래 두 사용처) 메시지 문자열과 판정 문자열이 갈라지지
+# 않게 한다 — 문구를 한쪽만 고치면 필터가 조용히 못 찾게 되는 것을 막는다.
+_BLOAT_VIOLATION_TAG = "줄 — 문서가 비대하다"
+_BLOAT_WARNING_TAG = "줄 — 경고선을 넘었다"
+
+# 폴더 파일 수 경고선 — 실측: 이 저장소 rules 13 · docs_format 9 · history 6 ·
+# agents 5, 형제 저장소는 rules 15 · features 15 · guide/usage 14. 대부분
+# 열 이하이고 넘는 사례가 13~15에서 나온다. 반려는 두지 않는다 — 스코프가
+# 실제로 겹치는지는 사람이 판정한다([topic-folders 규칙](rules/topic-folders-when-scope-overlaps.md)
+# 제1조).
+_FOLDER_FILE_COUNT_WARN = 10
 
 # 주: gen_readmes.py 등에도 동일 상수를 둔다 — 이 스크립트는 stdlib only라
 # (훅에서 별도 설치 없이 돈다) import로 합칠 수 없다.
@@ -305,10 +341,37 @@ def check_forbidden_refs(path: Path, lines: list[str]) -> list[str]:
     return violations
 
 
+def _folder_file_count_warning(folder: Path) -> str | None:
+    """한 폴더의 `.md` 개수가 경고선을 넘으면 처방 문구를, 아니면 None을 낸다.
+
+    스코프가 실제로 겹치는지는 여기서 단정하지 않는다 — 개수만 사실대로
+    통지한다(그 판정은 사람 몫이다, topic-folders 규칙 제1조). 하위 폴더는
+    순회하지 않는다 — 이 폴더 자신의 `.md`만 센다(전체 순회 금지).
+    """
+    try:
+        count = sum(1 for p in folder.iterdir() if p.is_file() and p.suffix == ".md")
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    if count <= _FOLDER_FILE_COUNT_WARN:
+        return None
+    return (
+        f"{folder}: 문서가 {count}개다({_FOLDER_FILE_COUNT_WARN}개 초과) — "
+        f"토픽이 갈리는지 보라. 갈리면 토픽 폴더로 묶고 README로 라우팅하라."
+    )
+
+
 def check_file(path: Path) -> list[str]:
-    """워킹트리 파일에 폼을 적용한다(직접 호출·감사용). 빈 리스트 = 통과."""
+    """워킹트리 파일에 폼을 적용한다(직접 호출·감사용). 빈 리스트 = 통과.
+
+    위반만 낸다 — 경고까지 보려면 `check_file_all`을 써라.
+    """
+    return check_file_all(path)[0]
+
+
+def check_file_all(path: Path) -> tuple[list[str], list[str]]:
+    """`check_file`과 같되 (위반, 경고) 둘 다 낸다 — `main()`이 쓴다."""
     if path.as_posix() in WHITELIST | EXTRA_WHITELIST:
-        return []
+        return [], []
     return _check_content(path, path.read_text(encoding="utf-8"))
 
 
@@ -365,10 +428,14 @@ def _iter_checkable_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
         yield i, line
 
 
-def _check_content(path: Path, text: str) -> list[str]:
+def _check_content(path: Path, text: str) -> tuple[list[str], list[str]]:
     """주어진 콘텐츠 문자열에 폼을 적용한다 — 소스가 워킹트리든 인덱스 blob든.
     --staged는 인덱스 blob을 넘겨, 위반 줄번호가 staged diff의 added-set과 같은
-    좌표계가 되게 한다(워킹트리·인덱스 갈림에 의한 fail-open을 구조적으로 차단)."""
+    좌표계가 되게 한다(워킹트리·인덱스 갈림에 의한 fail-open을 구조적으로 차단).
+
+    (위반, 경고) 튜플을 낸다 — 경고는 종료 코드에 안 셈되는 별도 채널이다
+    (지금은 줄 수 2단계 판정만 경고를 낸다, 아래 `elif warn_lines_max`).
+    """
     # split("\n")은 후행 개행이 있는(표준) 파일에서 팬텀 빈 줄을 하나 더 만들어
     # 실제 줄 수보다 항상 1 많게 센다(회귀: 실제 100줄 문서가 101줄로 오탐 리젝).
     lines = text.splitlines()
@@ -384,9 +451,16 @@ def _check_content(path: Path, text: str) -> list[str]:
     line_max = budgets.get("line_chars")
     bluf_max = budgets.get("bluf_chars")
     lines_max = budgets.get("max_lines")
+    # 경고선: 폼이 직접 선언했으면 그 값, 아니면 반려선에 계수를 곱한 기본값.
+    # 반려선이 없으면(lines_max None) 경고도 없다 — 잴 반려선이 없는데
+    # 그보다 낮은 경고선만 있는 상태는 의미가 없다.
+    warn_lines_max = budgets.get("warn_lines")
+    if warn_lines_max is None and lines_max:
+        warn_lines_max = round(lines_max * _WARN_LINE_FACTOR)
 
     # 금지 참조는 예산과 무관한 축이라 예산 판정 전에 모은다.
     violations: list[str] = check_forbidden_refs(path, lines)
+    warnings: list[str] = []
 
     # fail-closed: 전역 폴백(_GLOBAL_FORM)조차 예산을 하나도 못 뽑았으면(폼
     # 디렉터리 없음·파일 없음·파싱 실패 등) line_max·bluf_max·lines_max가 전부
@@ -401,16 +475,25 @@ def _check_content(path: Path, text: str) -> list[str]:
             f"{path}: 예산을 하나도 못 뽑음({reason}: {form_path}) — 위반이 없어서 "
             f"통과가 아니라 잴 자가 없어서 통과할 뻔한 것이다. 폼 파일·문구를 "
             f"확인하라(fail-closed)."
-        ]
+        ], []
 
     authored = _authored_line_count(lines)
     if lines_max and authored > lines_max:
         _via = f"{RULE_DOC_AUTHORING} 제3조로 " if RULE_DOC_AUTHORING else ""
         violations.append(
-            f"{path}: {authored}줄 > {lines_max}줄 — 문서가 비대하다"
+            f"{path}: {authored}줄 > {lines_max}{_BLOAT_VIOLATION_TAG}"
             f"{_rule_cite(RULE_DOC_AUTHORING, '비대 상한')}. 먼저 {_via}"
             f"기계-사실 재서술을 쳐내라([✅test]·개수·좌표를 링크·이름참조로). "
             f"그다음 함축하고, 그래도 넘으면 docs/history로 내려라."
+        )
+    elif warn_lines_max and authored > warn_lines_max:
+        # 반려는 아니다 — 종료 코드는 0으로 두고 처방만 낸다(경고 단계의
+        # 전부). 위반과 같은 목록에 넣지 않는다: main()이 violations 하나로
+        # 종료 코드를 정하므로, 여기 섞으면 exit 1로 샌다.
+        warnings.append(
+            f"{path}: {authored}줄 > {warn_lines_max}{_BLOAT_WARNING_TAG}"
+            f"(반려선 {lines_max}줄) — 먼저 압축을 검토하라. 압축이 안 되면 "
+            f"쪼개거나 토픽 폴더로 묶어라."
         )
 
     bluf_lineno: int | None = None  # 직전에 본 BLUF 줄번호(접기 판정용).
@@ -468,7 +551,7 @@ def _check_content(path: Path, text: str) -> list[str]:
                     f"stale된다{cite3}. 심볼명이나 SHA-고정 경로를 써라."
                 )
 
-    return violations
+    return violations, warnings
 
 
 def staged_files() -> list[tuple[Path, Path | None]]:
@@ -587,9 +670,44 @@ def _staged_blob(path: Path) -> str:
     return out.stdout if out.returncode == 0 else path.read_text(encoding="utf-8")
 
 
+def _filter_to_staged_scope(
+    items: list[str], path: Path, added: set[int], char_delta: int, bloat_tag: str,
+) -> list[str]:
+    """`items`(위반이든 경고든) 중 이번 diff가 추가/변경한 줄에 걸린 것만 남긴다.
+
+    세 갈래다.
+
+    - `path:N:` 좌표가 있는 항목 — 그 줄 번호가 `added`에 있을 때만 남긴다.
+    - `bloat_tag`를 포함한 총량성 항목("문서가 비대하다"·"경고선을 넘었다") —
+      이번 diff가 **문자** 순증(`char_delta > 0`)일 때만 남긴다. 안 건드린
+      비대함까지 커밋자에게 떠넘기지 않기 위해서다. 줄 순증이 아니라 문자
+      순증을 보는 이유는 `check_staged_all`의 docstring이 정본이다.
+    - 그 외(예산 파싱 실패 같은 구조적 항목) — 줄·문자와 무관하므로 항상
+      남긴다(게이트 무력화 방지).
+    """
+    per_line = re.compile(rf"^{re.escape(str(path))}:(\d+):")
+    kept: list[str] = []
+    for item in items:
+        m = per_line.match(item)
+        if m:
+            if int(m.group(1)) in added:
+                kept.append(item)
+        elif bloat_tag in item:
+            if char_delta > 0:
+                kept.append(item)
+        else:
+            kept.append(item)
+    return kept
+
+
 def check_staged(path: Path, old_path: Path | None = None) -> list[str]:
-    """스테이징된 blob(커밋될 내용)의 위반 중 이번 diff가 추가/변경한 줄에 걸린
-    것만 남긴다.
+    """`check_staged_all`과 같되 위반만 낸다. 경고까지 보려면 그쪽을 써라."""
+    return check_staged_all(path, old_path)[0]
+
+
+def check_staged_all(path: Path, old_path: Path | None = None) -> tuple[list[str], list[str]]:
+    """스테이징된 blob(커밋될 내용)의 (위반, 경고) 중 이번 diff가 추가/변경한
+    줄에 걸린 것만 남긴다.
 
     문서 전체 줄수 초과는 이번 변경이 **문자** 순증(추가 문자>삭제 문자)일
     때만 보고한다 — 안 건드린 비대함까지 커밋자에게 떠넘기지 않는다. **줄
@@ -598,7 +716,8 @@ def check_staged(path: Path, old_path: Path | None = None) -> list[str]:
     총량 위반이 되살아난다 — 두 규칙이 서로를 배반한다. 문자 수는 내용의
     함수라 쪼개도 개행·불릿 마커 몇 자뿐이다(`staged_char_delta` 참고). 예산
     파싱 실패 같은 구조적 위반은 줄과 무관하므로 항상 유지한다(게이트 무력화
-    방지).
+    방지). 경고(줄 수 경고선)도 같은 문자-순증 조건으로 거른다 — 안 건드린
+    문서가 원래 경고선을 넘었다는 사실까지 이번 커밋자 탓으로 돌리지 않는다.
 
     **대가(정직 표기)**: 문자가 안 늘면 절대 줄수가 상한을 넘겨도 이 경로는
     보고하지 않는다. 재포맷만으로 새로 상한을 넘기는 케이스가 안 잡힌다는
@@ -606,25 +725,15 @@ def check_staged(path: Path, old_path: Path | None = None) -> list[str]:
     있다 — pre-commit은 `--staged`만 부른다. "N줄 상한"은 그래서 무조건이
     아니라 **문자가 늘 때만 걸리는 조건부**다."""
     if path.as_posix() in WHITELIST | EXTRA_WHITELIST:
-        return []
-    all_v = _check_content(path, _staged_blob(path))
-    if not all_v:
-        return []
+        return [], []
+    all_v, all_w = _check_content(path, _staged_blob(path))
+    if not all_v and not all_w:
+        return [], []
     added, _removed_lines = staged_line_delta(path, old_path)
     char_delta = staged_char_delta(path, old_path)
-    per_line = re.compile(rf"^{re.escape(str(path))}:(\d+):")
-    kept: list[str] = []
-    for v in all_v:
-        m = per_line.match(v)
-        if m:
-            if int(m.group(1)) in added:
-                kept.append(v)
-        elif "줄 — 문서가 비대하다" in v:
-            if char_delta > 0:
-                kept.append(v)
-        else:
-            kept.append(v)
-    return kept
+    kept_v = _filter_to_staged_scope(all_v, path, added, char_delta, _BLOAT_VIOLATION_TAG)
+    kept_w = _filter_to_staged_scope(all_w, path, added, char_delta, _BLOAT_WARNING_TAG)
+    return kept_v, kept_w
 
 
 def _print_help(prog: str | None = None) -> None:
@@ -654,13 +763,48 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         return 0
 
     violations: list[str] = []
+    warnings: list[str] = []
+    # 폴더 파일 수 경고는 문서 하나가 아니라 폴더 단위 신호다 — 같은 폴더의
+    # 파일 둘 이상을 함께 스테이징해도 같은 경고가 거듭 나오지 않게, 이번
+    # 실행에서 이미 짚은 폴더는 다시 안 짚는다.
+    warned_folders: set[Path] = set()
+
+    def _note_folder(folder: Path) -> None:
+        if folder in warned_folders:
+            return
+        warned_folders.add(folder)
+        msg = _folder_file_count_warning(folder)
+        if msg:
+            warnings.append(msg)
+
     if "--staged" in args:
         for new, old in staged_files():
-            violations.extend(check_staged(new, old))
+            v, w = check_staged_all(new, old)
+            violations.extend(v)
+            warnings.extend(w)
+            _note_folder(new.parent)
     else:
         for path in [Path(a) for a in args if not a.startswith("-")]:
             if path.is_file() and path.suffix == ".md":
-                violations.extend(check_file(path))
+                v, w = check_file_all(path)
+                violations.extend(v)
+                warnings.extend(w)
+                _note_folder(path.parent)
+
+    if not violations and not warnings:
+        return 0
+
+    # 경고는 위반과 다른 헤더를 쓴다 — 종료 코드가 0인데 "리젝" 어휘를 재사용하면
+    # 실패로 읽힌다. 위반이 없어도(그래서 exit 0이어도) 경고는 그대로 낸다.
+    if warnings:
+        print(
+            f"[check_doc_form] 문서 폼 경고 — {len(warnings)}건(반려 아님, 처방 참고):",
+            file=sys.stderr,
+        )
+        for w in warnings:
+            print(f"  - {w}", file=sys.stderr)
+        if violations:
+            print(file=sys.stderr)
 
     if not violations:
         return 0
