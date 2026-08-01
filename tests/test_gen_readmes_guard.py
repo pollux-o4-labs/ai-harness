@@ -203,6 +203,25 @@ def test_extract_bluf_prefers_bluf_over_frontmatter_description(tmp_path):
     assert gen_readmes.extract_bluf(f) == "본문 BLUF."
 
 
+def test_extract_bluf_keeps_trailing_angle_bracket(tmp_path):
+    """BLUF가 자리표시자 `<...>`로 끝나도 닫는 꺾쇠를 깎지 않는다.
+
+    HTML 주석 종결 기호를 걷어내려던 처리가 부분 문자열이 아니라 문자 집합으로
+    동작해 끝의 꺾쇠·붙임표·공백을 문자 단위로 깎았다(실측: 폼 넷의 인덱스
+    항목이 닫는 꺾쇠를 잃은 채 생성되어 있었다).
+    """
+    f = tmp_path / "placeholder.md"
+    f.write_text("> **BLUF:** 자리표시자 <경로>\n", encoding="utf-8")
+    assert gen_readmes.extract_bluf(f) == "자리표시자 <경로>"
+
+
+def test_extract_bluf_strips_html_comment_terminator(tmp_path):
+    """한 줄짜리 HTML 주석 형태에서 종결 기호는 그대로 걷어낸다."""
+    f = tmp_path / "html.md"
+    f.write_text("<!-- BLUF: 한 줄 설명. -->\n", encoding="utf-8")
+    assert gen_readmes.extract_bluf(f) == "한 줄 설명."
+
+
 def test_extract_bluf_ignores_body_description_without_frontmatter(tmp_path):
     """frontmatter가 아닌 본문의 `description:` 줄은 BLUF로 오인하지 않는다."""
     f = tmp_path / "prose.md"

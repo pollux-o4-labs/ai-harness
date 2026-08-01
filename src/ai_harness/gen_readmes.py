@@ -130,7 +130,11 @@ def extract_bluf(path: Path) -> str | None:
         for pat in _BLUF_PATTERNS:
             m = pat.search(line)
             if m:
-                text = m.group(1).strip().rstrip("-> ").strip().strip('"')
+                # 종결 기호는 통째로 뗀다 — `rstrip`은 인자를 문자 집합으로
+                # 읽어 끝의 꺾쇠·붙임표·공백을 문자 단위로 깎았다. 그래서
+                # BLUF가 자리표시자로 끝나면 닫는 꺾쇠까지 잘렸다(실측: 폼
+                # 넷의 인덱스 항목이 그렇게 생성되어 있었다).
+                text = m.group(1).strip().removesuffix("-->").strip().strip('"')
                 if text:
                     return text
     # 여러 줄에 걸친 HTML 주석 BLUF 대응.

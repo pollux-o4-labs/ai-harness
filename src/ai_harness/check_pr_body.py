@@ -1014,18 +1014,6 @@ def extract_pr_view_from_merge_command(command: str) -> tuple[dict | None, str |
     return _fetch_pr_body(identifier, repo)
 
 
-def extract_body_from_merge_command(command: str) -> tuple[str | None, str | None]:
-    """`gh pr merge ...`가 리젝 대상인 PR의 본문만 뽑는다(기존 계약 유지).
-
-    `extract_pr_view_from_merge_command`를 재사용해 스냅샷에서 본문만 꺼낸다 —
-    argv 파싱·merge 감지 로직을 재구현하지 않는다.
-    """
-    data, reason = extract_pr_view_from_merge_command(command)
-    if data is None:
-        return None, reason
-    return data["body"], None
-
-
 def check_merge_readiness(identifier: str | None, repo: str | None = None) -> list[str]:
     """`--merge-check` dry-run 판정 — **실제 머지(`gh pr merge`)는 하지 않는다.**
 
