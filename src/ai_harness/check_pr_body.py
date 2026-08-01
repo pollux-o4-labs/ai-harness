@@ -1041,13 +1041,13 @@ def check_merge_readiness(identifier: str | None, repo: str | None = None) -> li
 
 
 class HookSubcommand(enum.Enum):
-    """훅이 받은 명령이 `gh pr` 어느 서브커맨드인지 — 1급 값으로 올린 것.
+    """훅이 받은 명령이 `gh pr` 어느 서브커맨드인지 — 값으로 승격한 것.
 
     이전엔 이 구분이 `(body, reason)` 튜플의 `None` 여부 조합과 `is_merge`
     참거짓 플래그(한 번 참으로 놓았다가 다음 블록에서 거짓으로 되돌리는 식)에
     흩어져 있었다. 되돌리기 자체는 결함이 아니었지만(다섯 경로 모두 낙관적으로
     참을 놓고 아니면 되돌리는 논리로 맞았다), "어느 서브커맨드인가"가 값이
-    아니라 판별 순서에 의존해 흩어져 있었다 — 이 열거형이 그 값을 한 곳에
+    아니라 판별 순서에 의존해 흩어져 있었다 — 이 enum이 그 값을 한 곳에
     묶는다."""
 
     CREATE = "create"
