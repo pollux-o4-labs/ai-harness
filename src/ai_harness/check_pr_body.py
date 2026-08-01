@@ -73,8 +73,8 @@ from ai_harness.gate_config import (
 # 체크리스트 섹션명은 이 파일 로직이 직접 쓰고, 테스트도 `cpb.CHECKLIST_SECTION`
 # 으로 읽는다. `is_issue_ref_line`·`is_checkbox_line`은 여기서 재노출하지
 # 않는다 — 쓰는 쪽이 gate_config 하나뿐이라 그쪽이 line_shapes에서 바로
-# 가져가면 된다. 아래 넷(펜스·문장 경계·예산 파싱)은 이 파일 자기 로직이
-# 직접 소비하므로 그대로 가져온다.
+# 쓰면 된다. 아래 넷(펜스·문장 경계·예산 파싱)은 이 파일 자기 로직이
+# 직접 소비하므로 그대로 쓴다.
 from ai_harness.line_shapes import (
     CHECKLIST_SECTION,
     LINE_CHARS_PATTERN,
