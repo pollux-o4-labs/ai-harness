@@ -53,7 +53,7 @@ def install_agents(user: bool = False, only: list[str] | None = None) -> int:
         available = {p.stem for p in _AGENTS_SRC.glob("*.md") if p.name != "README.md"}
         unknown = sorted(wanted - available)
         if unknown:
-            # 오타를 조용히 0개 설치로 넘기면 저자가 설치된 줄 안다.
+            # 오타를 조용히 0개 설치로 넘기면 저자가 설치되었다고 오인한다.
             print(f"[install_agents] 없는 좌석: {', '.join(unknown)} "
                   f"— 동봉: {', '.join(sorted(available))}")
             return 0
