@@ -866,6 +866,46 @@ def test_review_evidence_missing_form_file_is_fail_closed(monkeypatch):
     assert violations != []
 
 
+# --- 재게시 되풀이(check_review_repeat) --------------------------------------
+#
+# "리뷰 근거가 낡음" 반려의 요구는 재판정이다. 헤더 SHA만 갈아끼운 재게시가
+# 그 반려를 통과로 바꾸던 자리를 막는다(실사고 재현).
+
+_PREV = "## 리뷰 종합 — 1차 (0b56be0)\n\nOK\n\n감독이 직접 재현하여 판정한다."
+
+
+def test_review_repeat_rejects_sha_only_change():
+    """실사고 재현 — 헤더 SHA만 바꾸고 본문이 같으면 리젝."""
+    repost = _PREV.replace("0b56be0", "36c867f")
+    violations = cpb.check_review_repeat(repost, [{"body": _PREV}])
+    assert any("직전 리뷰 종합과 본문이 같다" in v for v in violations)
+
+
+def test_review_repeat_passes_when_body_changed():
+    """한 줄이라도 새로 쓰면 통과 — 그러려면 얹힌 커밋을 봐야 한다."""
+    repost = _PREV.replace("0b56be0", "36c867f") + "\n\n#61은 문서 1건이라 판정 유지."
+    assert cpb.check_review_repeat(repost, [{"body": _PREV}]) == []
+
+
+def test_review_repeat_ignores_non_review_comment():
+    """일반 코멘트는 대조 대상이 아니다."""
+    assert cpb.check_review_repeat("그냥 코멘트.", [{"body": _PREV}]) == []
+
+
+def test_review_repeat_passes_on_first_review():
+    """직전 종합이 없으면 대조할 것이 없다 — 첫 판정은 통과."""
+    assert cpb.check_review_repeat(_PREV, [{"body": "무관한 코멘트."}]) == []
+
+
+def test_review_repeat_compares_against_latest_review_only():
+    """중간에 낀 종합이 아니라 가장 최신 종합과 대조한다."""
+    newer = _PREV.replace("0b56be0", "1111111") + "\n\n2차에서 덧붙인 판정."
+    comments = [{"body": _PREV}, {"body": newer}]
+    repost = newer.replace("1111111", "2222222")
+    violations = cpb.check_review_repeat(repost, comments)
+    assert any("직전 리뷰 종합과 본문이 같다" in v for v in violations)
+
+
 # --- --merge-check dry-run ---------------------------------------------------
 #
 # `gh pr merge`를 부르지 않는다 — check_merge_readiness의 3종 판정(체크리스트

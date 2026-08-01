@@ -301,12 +301,18 @@ _MERGE_VALUE_FLAGS = {"--subject", "-t", "--body", "-b", "--body-file",
                        "-F", "--match-head-commit"}
 
 
-def _merge_target(argv: list[str]) -> str | None:
-    """`gh pr merge [<번호|브랜치|URL>] [옵션...]`에서 대상 식별자를 뽑는다.
+def _merge_target(argv: list[str], subcommand: str = "merge") -> str | None:
+    """`gh pr <subcommand> [<번호|브랜치|URL>] [옵션...]`에서 대상 식별자를 뽑는다.
     옵션이 아닌 첫 토큰이 식별자다 — 단, `--subject`/`--body` 같은 값-소비
     플래그의 값 토큰은 건너뛴다(안 그러면 그 값을 식별자로 오인해 정상 머지를
-    오탐 리젝한다). 식별자가 생략되면(gh가 현재 브랜치를 추론) None."""
-    span = _find_gh_pr_span(argv, "merge")
+    오탐 리젝한다). 식별자가 생략되면(gh가 현재 브랜치를 추론) None.
+
+    이름은 merge를 가리키지만 `comment`도 같은 위치인자 계약을 써서 공유한다
+    (`resolve_comment_call`). 값-소비 플래그 집합도 comment의 것(`--body`·`-b`·
+    `--body-file`·`-F`)을 이미 품고 있어 그대로 맞는다 — comment에 없는
+    `--subject` 따위가 집합에 남아도 그 토큰이 안 나타나므로 무해하다.
+    개명하지 않는 것은 이 이름을 직접 부르는 검사가 이미 있어서다."""
+    span = _find_gh_pr_span(argv, subcommand)
     if span is None:
         return None
     _, subcmd_i = span
@@ -364,4 +370,31 @@ def resolve_merge_call(command: str) -> tuple[bool, str | None, str | None, str 
     identifier = _merge_target(argv)
     span = _find_gh_pr_span(argv, "merge")
     repo = _gh_repo_value(argv, span) if span is not None else None
+    return True, identifier, repo, None
+
+
+def resolve_comment_call(command: str) -> tuple[bool, str | None, str | None, str | None]:
+    """`gh pr comment ...`의 대상 식별자·저장소를 낸다 — `resolve_merge_call`과
+    같은 계약이며 서브커맨드만 다르다.
+
+    코멘트 본문 자체는 명령 인자에 있어 `extract_body_from_comment_command`가
+    이미 뽑는다. 이 함수가 필요한 곳은 **그 PR에 이미 달린 코멘트를 조회해야
+    하는 검사**뿐이다(직전 리뷰 종합과의 대조). 저장소를 같이 내는 이유는
+    merge와 같다 — 훅은 세션 기준 디렉터리에서 돌아 gh의 remote 추론이 형제
+    저장소를 가리킬 수 있다.
+
+    반환: (is_comment, identifier, repo, reason) — 의미는 `resolve_merge_call`과
+    같다.
+    """
+    try:
+        argv = tokenize(command)
+    except ValueError as e:
+        return False, None, None, f"명령 파싱 실패({e})"
+
+    span = _find_gh_pr_span(argv, "comment")
+    if span is None:
+        return False, None, None, None
+
+    identifier = _merge_target(argv, "comment")
+    repo = _gh_repo_value(argv, span)
     return True, identifier, repo, None

@@ -48,6 +48,7 @@ PR 본문이 아니다 — 섹션 골격(요약/변경/범위 밖/검증)·체�
   gh pr create    섹션·예산·체크절(존재만)·제목(conventional-commit)
   gh pr merge     위 + 체크 전량(제목은 이미 만들어진 PR을 가리킬 뿐이라 검사 안 함)
   gh pr comment   줄자수·줄수 예산 + 한 줄 한 문장(섹션·체크리스트 없음)
+                  + 리뷰 종합이면 직전 종합과 본문이 같은지(check_review_repeat)
 
 (comment 예산 수치는 `docs_format/pr-comment.md`가 정본 — 여기 재서술 안 함.)
 
@@ -79,6 +80,7 @@ from ai_harness.gh_command import (
     extract_body_from_comment_command,
     extract_body_from_command,
     extract_title_from_command,
+    resolve_comment_call,
     resolve_merge_call,
 )
 # 체크리스트 섹션명은 이 파일 로직이 직접 쓰고, 테스트도 `cpb.CHECKLIST_SECTION`
@@ -513,6 +515,57 @@ def _review_skeleton_template(prefix: str, sections: list[str], labels: list[str
     )
 
 
+def _review_body_tail(pattern: re.Pattern[str], text: str) -> str | None:
+    """리뷰 종합 코멘트에서 **헤더 줄을 뺀 나머지**를 낸다 — 종합이 아니면 None.
+
+    헤더만 빼는 이유는 그 줄이 차수·SHA를 담아 매번 달라지는 유일한 줄이라서다.
+    나머지가 같다는 것은 판정 내용이 한 글자도 안 바뀌었다는 뜻이다."""
+    lines = text.splitlines()
+    if not any(pattern.match(line.strip()) for line in lines):
+        return None
+    rest = [line for line in lines if not pattern.match(line.strip())]
+    return "\n".join(rest).strip()
+
+
+def check_review_repeat(body: str, comments: list[dict]) -> list[str]:
+    """올리려는 리뷰 종합이 직전 종합과 헤더 줄만 빼고 같으면 리젝한다.
+
+    `check_review_evidence`가 "리뷰 근거가 낡음"으로 반려할 때 그 요구는
+    **재판정**이다. 그런데 헤더 SHA만 갈아끼워 같은 본문을 다시 올리면 그
+    반려가 통과로 바뀐다(실사고: `sed -i 's/(0b56be0)/(36c867f)/'` 한 줄로
+    통과시켰고 사람이 나중에 발견했다). 읽는 쪽은 새 head를 판정했다고 읽지만
+    근거는 옛 시점 산출물이다 — 그 틈을 여기서 막는다.
+
+    잴 수 있는 것만 잰다. "실제로 재현검증했는가"는 못 밝힌다(원칙 2 — 리뷰어
+    몫). 여기선 **본문이 직전과 글자 그대로 같은가**만 본다. 한 줄이라도 새로
+    쓰려면 그 사이 얹힌 커밋을 봐야 하고, 보면 판정이 따라온다. 아무 문장이나
+    덧붙여 우회하는 것은 막지 못한다 — 게이트는 lint이며, 막으려는 것은 의식적
+    우회가 아니라 무의식적 되풀이다.
+
+    리뷰 종합이 아니거나(일반 코멘트) 직전 종합이 없으면(첫 판정) 빈 리스트.
+    """
+    prefix = load_review_header_prefix()
+    if prefix is None:
+        return []  # 헤더 접두어 못 뽑음 — check_comment 예산 경로가 이미 fail-closed
+    pattern = _review_header_pattern(prefix)
+    new_tail = _review_body_tail(pattern, body)
+    if new_tail is None:
+        return []  # 리뷰 종합 아님 → 대조 대상 아님
+    prev_tail = None
+    for c in comments:  # 목록 순서상 뒤가 최신 — 마지막 종합이 직전 판정이다
+        tail = _review_body_tail(pattern, c.get("body") or "")
+        if tail is not None:
+            prev_tail = tail
+    if prev_tail is None or prev_tail != new_tail:
+        return []
+    return [
+        "직전 리뷰 종합과 본문이 같다 — 헤더 SHA만 바꾼 재게시는 재판정이 "
+        "아니다. 그 사이 얹힌 커밋이 무엇이며 앞 판정이 유지되는지 써라"
+        "(`git log --oneline <직전SHA>..<현재head>`). 바뀐 것이 없다는 판정도 "
+        "쓸 내용이다."
+    ]
+
+
 def _print_violations(header: str, violations: list[str]) -> None:
     """헤더 한 줄 + 위반 목록(`  - {v}`)을 stderr로 찍는 공통 관용구.
 
@@ -811,6 +864,30 @@ def _resolve_hook_command(command: str) -> HookResolution:
     return HookResolution(HookSubcommand.NONE)
 
 
+def _review_repeat_violations(command: str, body: str) -> list[str]:
+    """`check_review_repeat`에 필요한 조회를 훅에서 붙인다.
+
+    조회는 **리뷰 종합일 때만** 한다 — 일반 코멘트가 네트워크 왕복을 무는 것을
+    막는다. 조회 실패는 fail-open이다. merge 경로의 fail-closed와 갈리는 근거는
+    이 검사가 최종 방어선이 아니라서다 — 놓쳐도 `check_review_evidence`가 머지
+    시점에 SHA 신선도로 다시 잡는다. 반대로 fail-closed로 하면 gh가 안 닿는
+    자리에서 코멘트 작성 자체가 막힌다(검사 하나를 위해 작업을 세우는 셈).
+    """
+    prefix = load_review_header_prefix()
+    if prefix is None:
+        return []
+    pattern = _review_header_pattern(prefix)
+    if not any(pattern.match(line.strip()) for line in body.splitlines()):
+        return []  # 리뷰 종합 아님 — 조회하지 않는다
+    is_comment, identifier, repo, _reason = resolve_comment_call(command)
+    if not is_comment:
+        return []
+    data, _unreadable = _fetch_pr_body(identifier, repo)
+    if data is None:
+        return []  # fail-open — 위 docstring
+    return check_review_repeat(body, data.get("comments") or [])
+
+
 def run_hook() -> int:
     """Claude Code PreToolUse 훅. stdin=훅 JSON. exit 2 = 툴 호출 리젝."""
     try:
@@ -834,7 +911,9 @@ def run_hook() -> int:
         return 2
 
     if resolved.kind is HookSubcommand.COMMENT:
-        violations = check_comment(resolved.body)
+        violations = check_comment(resolved.body) + _review_repeat_violations(
+            command, resolved.body
+        )
         if violations:
             _report_comment(violations, resolved.body)
             return 2

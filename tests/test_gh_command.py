@@ -307,3 +307,28 @@ def test_ampersand_does_not_leak_next_command_body(tmp_path):
     )
     assert body is None
     assert reason is not None
+
+
+# --- resolve_comment_call --------------------------------------------------
+#
+# 직전 리뷰 종합과 대조하려면 그 PR의 코멘트를 조회해야 하고, 조회를 고정할
+# 식별자·저장소가 필요하다. 저장소를 안 고정하면 형제 저장소의 같은 번호 PR을
+# 조회하는 실사고가 재현된다.
+
+def test_resolve_comment_call_extracts_identifier_and_repo():
+    is_comment, identifier, repo, reason = ghc.resolve_comment_call(
+        "gh pr comment 62 --repo o/r --body-file x.md"
+    )
+    assert (is_comment, identifier, repo, reason) == (True, "62", "o/r", None)
+
+
+def test_resolve_comment_call_body_value_is_not_taken_as_identifier():
+    """`--body <값>`의 값 토큰을 식별자로 오인하면 엉뚱한 PR을 조회한다."""
+    _, identifier, _, _ = ghc.resolve_comment_call('gh pr comment --body "내용"')
+    assert identifier is None
+
+
+def test_resolve_comment_call_ignores_non_comment_call():
+    assert ghc.resolve_comment_call("gh pr merge 62 --squash") == (
+        False, None, None, None,
+    )
