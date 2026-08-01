@@ -42,7 +42,7 @@ ai-harness check-doc   # 문서 폼(줄 예산) 게이트
 ai-harness gen-readmes # BLUF 기반 README 자동 생성
 ```
 
-전체 명령과 역할은 [docs/adopting.md](docs/adopting.md)의 게이트 목록이 정본이다.
+채택 절차와 전체 명령·역할은 [docs/adopting.md](docs/adopting.md)가 정본이다.
 
 ## 저장소별 설정
 
@@ -50,8 +50,6 @@ ai-harness gen-readmes # BLUF 기반 README 자동 생성
 없으면 번들 기본값으로 동작한다.
 기본은 전 게이트 켬이고, 안 맞는 저장소만 `DISABLED_GATES`로 그 게이트를 끈다.
 각 값의 의미는 `gate_config.py` 주석이 정본이다.
-
-채택 절차·게이트 목록은 [docs/adopting.md](docs/adopting.md)에 있다.
 
 ## 검증
 
