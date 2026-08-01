@@ -18,6 +18,16 @@
 README 인덱스는 폴더마다 내용이 달라 형태로 추정할 수밖에 없지만, 이 블록은
 모든 저장소가 같은 정본을 받으므로 **정확 일치**로 잰다(다르면 손댄 것).
 
+**"정본과 다르다"에는 서로 다른 두 사건이 섞인다** — (a) 사람이 블록 안을
+직접 고쳤다(잡아야 한다) (b) 아무도 안 건드렸는데 그 뒤 `_CONTENT`가
+바뀌었다(그냥 낡음이다, 잡으면 안 된다). "블록 내용 대 지금 `_CONTENT`"
+하나로만 비교하면 이 둘을 못 가른다(실사고: 적대검증 BLOCKER — 정본만
+고치고 재주입했더니 손편집으로 오판해 멈췄다). 그래서 블록 안에 **쓰기
+시점 해시**(`hash=` 주석)를 같이 심는다 — "지금 정본과 같은가"가 아니라
+"이 도구가 마지막으로 쓴 그대로인가"를 재면 (a)·(b)가 갈린다: 해시가
+맞으면 정본이 바뀌었어도 (b)라 조용히 재생성하고, 해시가 안 맞으면 그
+사이 누가 글자를 건드린 것이니 (a)로 멈춘다.
+
 사용:
   ai-harness gen-agents-common          # 주입/갱신
   ai-harness gen-agents-common --check  # 드라이런: 없거나 어긋나면 비영 종료
@@ -25,6 +35,8 @@ README 인덱스는 폴더마다 내용이 달라 형태로 추정할 수밖에 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import re
 import sys
 from pathlib import Path
 
@@ -68,32 +80,84 @@ DRIFT = 1              # 블록이 없거나 정본과 다름 — 재생성하�
 HANDWRITTEN_ABORT = 2  # 블록 안 손글씨 — 쓰기 전에 멈춘다.
 DUPLICATE_MARKERS = 3  # 마커 쌍이 온전한 한 쌍이 아님(중복·짝 안 맞음).
 
+# 쓰기 시점 해시 주석 — MARK_START 자신에는 못 심는다(마커는 `marker_splice`가
+# `re.escape`로 리터럴 통째 매칭하는 상수라, 실행마다 달라지는 값을 그 문자열
+# 안에 넣으면 다음 실행이 자기가 쓴 마커조차 못 찾는다). 그래서 블록 **내용**의
+# 맨 앞줄로 심는다 — `marker_splice`는 안 건드리면서 `extract_block`이 돌려주는
+# 내부 텍스트 안에서 이 모듈이 직접 떼어 본다.
+_HASH_PREFIX = "<!-- gen-agents-common:hash="
+_HASH_LINE_RE = re.compile(r"^<!-- gen-agents-common:hash=([0-9a-f]{12}) -->\s*$", re.MULTILINE)
 
-def build_block() -> str:
+
+def _content_hash(body: str) -> str:
+    """정본 문구의 무결성 해시(sha256 앞 12자, 양끝 공백 제외).
+
+    "지금 정본이 무엇인가"가 아니라 "이 도구가 마지막으로 쓴 그 글자
+    그대로인가"를 증명하는 값이다 — `_CONTENT`가 바뀌어도 이미 쓰인 파일
+    안의 이 해시는 안 바뀐다.
+    """
+    return hashlib.sha256(body.strip().encode("utf-8")).hexdigest()[:12]
+
+
+def _split_hash_and_body(inner: str) -> tuple[str | None, str]:
+    """블록 내부 텍스트에서 해시 주석 줄과 나머지 본문(축 목록)을 가른다.
+
+    해시 줄이 없으면(이 필드를 아직 모르던 구버전 산출물 등) `None` — 이때는
+    "마지막으로 쓴 그대로인가"를 증명할 방법이 없으므로, 증명 못 하면 통과
+    시키지 않는다는 기본값으로 되돌아간다(호출측이 정확 일치로 처리).
+    """
+    m = _HASH_LINE_RE.search(inner)
+    if not m:
+        return None, inner.strip()
+    body = inner[:m.start()] + inner[m.end():]
+    return m.group(1), body.strip()
+
+
+def build_block(content: str | None = None) -> str:
     """마커를 포함한 완결 블록 텍스트 — `marker_splice.splice`는 이 문자열째로
-    삽입/교체한다(마커는 splice가 아니라 여기서 찍는다)."""
-    return "\n".join([MARK_START, "", _CONTENT, "", MARK_END]) + "\n"
+    삽입/교체한다(마커는 splice가 아니라 여기서 찍는다).
+
+    `content`를 안 주면(기본) **호출 시점**의 `_CONTENT`를 쓴다 — 함수
+    시그니처 기본값(`= _CONTENT`)으로 박으면 정의 시점 값이 굳어 테스트가
+    `_CONTENT`를 monkeypatch해도 안 먹는다.
+    """
+    if content is None:
+        content = _CONTENT
+    hash_line = f"{_HASH_PREFIX}{_content_hash(content)} -->"
+    return "\n".join([MARK_START, "", hash_line, "", content, "", MARK_END]) + "\n"
 
 
 def handwritten_edit(old_content: str) -> str | None:
-    """블록 안이 정본과 다르면 그 현재 내용을(안내용) 반환, 같거나 블록
-    자체가 없으면 None.
+    """블록 안을 사람이 고쳤으면 그 현재 내용을(안내 출력용) 반환, 아니면 None.
 
-    양끝 공백만 잘라 비교한다(`.strip()`) — 마커 사이 빈 줄 개수 같은 순수
-    조판 차이까지 "손댄 것"으로 잡으면 이 스크립트 자신의 출력조차 재실행마다
-    다시 걸릴 수 있다. 그 외 어떤 글자 변경도 이 비교를 통과하지 못한다 —
-    README처럼 형태(불릿·헤딩 여부)로 추정하지 않는다.
+    **"정본과 다르다"만으로는 판정하지 않는다** — 정본(`_CONTENT`)이 바뀌면
+    블록을 아무도 안 건드려도 무조건 달라지기 때문이다(회귀: 적대검증
+    BLOCKER). 대신 블록에 심어둔 쓰기 시점 해시로 "이 도구가 마지막으로 쓴
+    그대로인가"를 잰다.
+
+    - 해시가 몸통(축 목록)과 일치 → 정본이 그 뒤 바뀌었어도 손편집이 아니라
+      그냥 낡음이다. 조용히 재생성해도 안전하므로 None.
+    - 해시가 없는 구버전 산출물 → 증명할 수 없으니 이전 방식대로 정확 일치로
+      되돌아간다(하위호환, 안전 기본값 — 증명 못 하면 통과시키지 않는다).
+    - 그 외(해시가 있는데 안 맞음) → 쓰인 뒤 글자가 바뀐 것이니 손편집.
     """
     inner = _extract_block(old_content, _MARK_START_RE, _MARK_END_RE)
     if inner is None:
         return None
-    stripped = inner.strip()
-    return None if stripped == _CONTENT.strip() else stripped
+    stored_hash, body = _split_hash_and_body(inner)
+    if stored_hash is not None:
+        return None if stored_hash == _content_hash(body) else body
+    return None if body == _CONTENT.strip() else body
 
 
 def compose(content: str | None) -> str:
     """대상 AGENTS.md 전체 텍스트 — 마커 있으면 그 쌍을 교체, 없으면 기존
-    내용 끝에 덧붙임, 파일 자체가 없으면 블록만."""
+    내용 끝에 덧붙임, 파일 자체가 없으면 블록만.
+
+    새로 짓는 블록은 항상 **현재** `_CONTENT`와 그 해시를 담는다 — 이 함수는
+    "이제 이 내용으로 확정해 쓴다"는 뜻이므로(호출 전에 `handwritten_edit`가
+    이미 안전하다고 판정했다), 낡은 해시를 그대로 들고 갈 이유가 없다.
+    """
     block = build_block()
     if content is None:
         return block
