@@ -432,23 +432,22 @@ def _iter_checkable_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
         yield i, line
 
 
-def _check_content(path: Path, text: str) -> tuple[list[str], list[str]]:
-    """주어진 콘텐츠 문자열에 폼을 적용한다 — 소스가 워킹트리든 인덱스 blob든.
-    --staged는 인덱스 blob을 넘겨, 위반 줄번호가 staged diff의 added-set과 같은
-    좌표계가 되게 한다(워킹트리·인덱스 갈림에 의한 fail-open을 구조적으로 차단).
+def _load_form_budgets(
+    path: Path, kind: str | None
+) -> tuple[int | None, int | None, int | None, int | None, str | None]:
+    """유형 폼(+ 전역 폴백)에서 예산을 뽑고 fail-closed 여부를 함께 판정한다.
 
-    (위반, 경고) 튜플을 낸다 — 경고는 종료 코드에 안 셈되는 별도 채널이다
-    (지금은 줄 수 2단계 판정만 경고를 낸다, 아래 `elif warn_lines_max`).
+    반환은 (line_max, bluf_max, lines_max, warn_lines_max, fail_closed_reason)다.
+    나머지 넷은 `_check_content`가 계속 쓰던 그대로고, 마지막 `fail_closed_reason`이
+    `None`이 아니면 예산을 하나도 못 뽑은 것이다 — 호출자가 그 문자열을 위반으로
+    승격해 그 자리에서 반환해야 한다(호출자 쪽 조기 반환은 그대로 유지, 이 함수는
+    "잴 자가 있는가"만 판정하고 반환 자체는 하지 않는다).
+
+    유형 폼이 예산을 하나라도 선언했으면 그 폼만 정본이다 — 미선언 항목을
+    전역 폴백으로 메우면 폼이 의도적으로 뺀 상한이 되살아난다(history 폼은
+    BLUF 상한을 안 건다고 명시하는데 rules의 100자가 끼어들어, 이미 커밋된
+    history 2건이 손대는 순간 리젝됐다). 폼과 어긋난 게이트는 꺼진다.
     """
-    # split("\n")은 후행 개행이 있는(표준) 파일에서 팬텀 빈 줄을 하나 더 만들어
-    # 실제 줄 수보다 항상 1 많게 센다(회귀: 실제 100줄 문서가 101줄로 오탐 리젝).
-    lines = text.splitlines()
-    kind = doc_type(path)
-
-    # 유형 폼이 예산을 하나라도 선언했으면 그 폼만 정본이다 — 미선언 항목을
-    # 전역 폴백으로 메우면 폼이 의도적으로 뺀 상한이 되살아난다(history 폼은
-    # BLUF 상한을 안 건다고 명시하는데 rules의 100자가 끼어들어, 이미 커밋된
-    # history 2건이 손대는 순간 리젝됐다). 폼과 어긋난 게이트는 꺼진다.
     budgets = load_budgets(kind) if kind else {}
     if not budgets:
         budgets = load_budgets(_GLOBAL_FORM)
@@ -462,98 +461,159 @@ def _check_content(path: Path, text: str) -> tuple[list[str], list[str]]:
     if warn_lines_max is None and lines_max:
         warn_lines_max = round(lines_max * _WARN_LINE_FACTOR)
 
-    # 금지 참조는 예산과 무관한 축이라 예산 판정 전에 모은다.
-    violations: list[str] = check_forbidden_refs(path, lines)
-    warnings: list[str] = []
-
     # fail-closed: 전역 폴백(_GLOBAL_FORM)조차 예산을 하나도 못 뽑았으면(폼
     # 디렉터리 없음·파일 없음·파싱 실패 등) line_max·bluf_max·lines_max가 전부
     # None이 된다. 이 상태로 조용히 통과시키면 "위반이 없어서 통과"가 아니라
     # "잴 자가 없어서 통과"가 되어 게이트가 무력화된다 — 검사기 자체의 부재
     # (훅 래퍼가 fail-open으로 처리하는 층)와는 다른 층의 문제이므로 여기서는
     # 반대로 fail-closed로 리젝한다.
+    fail_closed_reason: str | None = None
     if line_max is None and bluf_max is None and lines_max is None:
         form_path = FORM_DIR / f"{_GLOBAL_FORM}.md"
         reason = "폼 파일 없음" if not form_path.is_file() else "폼은 있으나 예산 파싱 실패"
-        return violations + [
+        fail_closed_reason = (
             f"{path}: 예산을 하나도 못 뽑음({reason}: {form_path}) — 위반이 없어서 "
             f"통과가 아니라 잴 자가 없어서 통과할 뻔한 것이다. 폼 파일·문구를 "
             f"확인하라(fail-closed)."
-        ], []
+        )
+    return line_max, bluf_max, lines_max, warn_lines_max, fail_closed_reason
 
+
+def _check_document_size(
+    path: Path, lines: list[str], lines_max: int | None, warn_lines_max: int | None
+) -> tuple[str | None, str | None]:
+    """저자 줄수를 반려선·경고선과 2단계로 대조한다.
+
+    반환은 (위반|None, 경고|None)이고 서로 배타적이다(원래 if/elif 그대로) —
+    호출자가 각자의 목록에 append한다. 경고는 종료 코드에 안 셈되는 별도
+    채널이라는 사실은 여기 감춘 채, 채널 분리는 호출자가 두 목록으로 유지한다.
+    """
     authored = _authored_line_count(lines)
     if lines_max and authored > lines_max:
         _via = f"{RULE_DOC_AUTHORING} 제3조로 " if RULE_DOC_AUTHORING else ""
-        violations.append(
+        return (
             f"{path}: {authored}줄 > {lines_max}{_BLOAT_VIOLATION_TAG}"
             f"{_rule_cite(RULE_DOC_AUTHORING, '비대 상한')}. 먼저 {_via}"
             f"기계-사실 재서술을 쳐내라([✅test]·개수·좌표를 링크·이름참조로). "
             f"그다음 함축하고, 그래도 넘으면 docs/history로 내려라."
-        )
-    elif warn_lines_max and authored > warn_lines_max:
-        # 반려는 아니다 — 종료 코드는 0으로 두고 처방만 낸다(경고 단계의
-        # 전부). 위반과 같은 목록에 넣지 않는다: main()이 violations 하나로
-        # 종료 코드를 정하므로, 여기 섞으면 exit 1로 샌다.
-        warnings.append(
+        ), None
+    if warn_lines_max and authored > warn_lines_max:
+        # 반려는 아니다 — 종료 코드는 0으로 두고 처방만 낸다(경고 단계의 전부).
+        return None, (
             f"{path}: {authored}줄 > {warn_lines_max}{_BLOAT_WARNING_TAG}"
             f"(반려선 {lines_max}줄) — 먼저 압축을 검토하라. 압축이 안 되면 "
             f"쪼개거나 토픽 폴더로 묶어라."
         )
+    return None, None
+
+
+def _check_line(
+    path: Path,
+    i: int,
+    line: str,
+    line_max: int | None,
+    bluf_max: int | None,
+    kind: str | None,
+    bluf_lineno: int | None,
+) -> tuple[list[str], int | None]:
+    """한 줄에 BLUF 길이·접힘, 한 줄 한 문장 + 길이, 손으로 친 좌표를 판정한다.
+
+    반환은 (이 줄이 낸 위반들, 다음 줄에 넘길 bluf_lineno)다. BLUF 접힘 판정은
+    "바로 다음 줄"을 봐야 해서 줄을 건너 상태를 지니므로, 호출자 루프가 이
+    반환값을 다음 호출의 `bluf_lineno` 인자로 그대로 먹인다 — 상태를 함수
+    바깥(루프 변수)에 두어 호출부가 명시적으로 나른다.
+    """
+    violations: list[str] = []
+    # BLUF 줄은 BLUF 예산으로만 잰다. 산문 상한으로 또 재면 폼이 허용한
+    # 길이를 쓸 수 없고(rules는 BLUF 100자 > 산문 80자), 상한을 안 건
+    # 유형의 BLUF가 산문 상한으로 떨어진다.
+    if _BLUF.match(line):
+        body = _BLUF.sub("", line)
+        if bluf_max and len(body) > bluf_max:
+            violations.append(
+                f"{path}:{i}: BLUF {len(body)}자 > {bluf_max}자 — "
+                f"요약 자리에 문단을 넣지 마라."
+            )
+        return violations, i
+
+    # BLUF를 다음 줄로 접으면 뒷부분이 인덱스에서 잘려나간다. **바로 다음
+    # 줄**만 본다 — 사이에 걸러진 줄이 있으면 줄번호가 안 이어지므로
+    # 인용문단(> …)이 뒤에 따로 오는 문서를 오탐하지 않는다.
+    if bluf_lineno is not None and i == bluf_lineno + 1 and _BLUF_CONT.match(line):
+        violations.append(
+            f"{path}:{i}: BLUF가 다음 줄로 이어진다 — 한 줄로 함축하라"
+            f"(BLUF 상한 {bluf_max or '?'}자는 산문 상한보다 넉넉하다). "
+            f"접으면 인덱스에 첫 줄만 실려 문장이 끊긴다."
+        )
+
+    # 검증 참조 스팬은 길이에서 뺀다 — 함수명이라 못 쪼갠다. 남은 산문은
+    # 여전히 상한을 진다(참조만 길고 서술은 짧으면 통과, 서술이 길면 리젝).
+    # 스팬 자체가 line_max를 넘으면 면제가 걷힌다(`_strip_review_refs`).
+    measured = _strip_review_refs(line, line_max)
+    # 한 줄에 문장이 여럿이면 리젝 — 길이(80자)와 별개 축이다. 길이는
+    # 프록시라 접기로 우회되지만, 이건 "한 줄 = 한 문장" 구조를 직접 건다.
+    if not _HEADING.match(line) and has_sentence_boundary(measured):
+        _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
+        violations.append(
+            f"{path}:{i}: 한 줄에 문장이 여럿이다 — 문장마다 줄바꿈해 불릿로 "
+            f"빼라(단문이 읽힌다{_reason5})."
+        )
+    # 길이 축에서만 링크 URL(안 쪼개지는 경로)을 마저 벗긴다 — 별도 사본이라
+    # 문장·좌표 검사(measured)엔 영향 없다(면제는 길이 축 한정, `_strip_link_urls`).
+    length_measured = _strip_link_urls(measured)
+    if line_max and len(length_measured) > line_max:
+        _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
+        violations.append(
+            f"{path}:{i}: {len(length_measured)}자 > {line_max}자 — 흐름을 우겨넣지 "
+            f"말고 함축해라(상한은 채울 칸이 아니다{_reason5})."
+        )
+    if kind not in _COORD_EXEMPT_TYPES:
+        for coord in _COORD.findall(measured):
+            cite3 = _rule_cite(RULE_DOC_AUTHORING, "제3조")
+            violations.append(
+                f"{path}:{i}: 손으로 친 줄번호 좌표({coord}) — 편집마다 밀려 "
+                f"stale된다{cite3}. 심볼명이나 SHA-고정 경로를 써라."
+            )
+    return violations, None
+
+
+def _check_content(path: Path, text: str) -> tuple[list[str], list[str]]:
+    """주어진 콘텐츠 문자열에 폼을 적용한다 — 소스가 워킹트리든 인덱스 blob든.
+    --staged는 인덱스 blob을 넘겨, 위반 줄번호가 staged diff의 added-set과 같은
+    좌표계가 되게 한다(워킹트리·인덱스 갈림에 의한 fail-open을 구조적으로 차단).
+
+    (위반, 경고) 튜플을 낸다 — 경고는 종료 코드에 안 셈되는 별도 채널이다
+    (지금은 줄 수 2단계 판정만 경고를 낸다, `_check_document_size`).
+    """
+    # split("\n")은 후행 개행이 있는(표준) 파일에서 팬텀 빈 줄을 하나 더 만들어
+    # 실제 줄 수보다 항상 1 많게 센다(회귀: 실제 100줄 문서가 101줄로 오탐 리젝).
+    lines = text.splitlines()
+    kind = doc_type(path)
+    line_max, bluf_max, lines_max, warn_lines_max, fail_closed_reason = (
+        _load_form_budgets(path, kind)
+    )
+
+    # 금지 참조는 예산과 무관한 축이라 예산 판정 전에 모은다.
+    violations: list[str] = check_forbidden_refs(path, lines)
+    warnings: list[str] = []
+
+    if fail_closed_reason is not None:
+        return violations + [fail_closed_reason], []
+
+    size_violation, size_warning = _check_document_size(path, lines, lines_max, warn_lines_max)
+    if size_violation:
+        violations.append(size_violation)
+    if size_warning:
+        # 위반과 같은 목록에 넣지 않는다: main()이 violations 하나로 종료
+        # 코드를 정하므로, 여기 섞으면 exit 1로 샌다.
+        warnings.append(size_warning)
 
     bluf_lineno: int | None = None  # 직전에 본 BLUF 줄번호(접기 판정용).
     for i, line in _iter_checkable_lines(lines):
-        # BLUF 줄은 BLUF 예산으로만 잰다. 산문 상한으로 또 재면 폼이 허용한
-        # 길이를 쓸 수 없고(rules는 BLUF 100자 > 산문 80자), 상한을 안 건
-        # 유형의 BLUF가 산문 상한으로 떨어진다.
-        if _BLUF.match(line):
-            body = _BLUF.sub("", line)
-            if bluf_max and len(body) > bluf_max:
-                violations.append(
-                    f"{path}:{i}: BLUF {len(body)}자 > {bluf_max}자 — "
-                    f"요약 자리에 문단을 넣지 마라."
-                )
-            bluf_lineno = i
-            continue
-
-        # BLUF를 다음 줄로 접으면 뒷부분이 인덱스에서 잘려나간다. **바로 다음
-        # 줄**만 본다 — 사이에 걸러진 줄이 있으면 줄번호가 안 이어지므로
-        # 인용문단(> …)이 뒤에 따로 오는 문서를 오탐하지 않는다.
-        if bluf_lineno is not None and i == bluf_lineno + 1 and _BLUF_CONT.match(line):
-            violations.append(
-                f"{path}:{i}: BLUF가 다음 줄로 이어진다 — 한 줄로 함축하라"
-                f"(BLUF 상한 {bluf_max or '?'}자는 산문 상한보다 넉넉하다). "
-                f"접으면 인덱스에 첫 줄만 실려 문장이 끊긴다."
-            )
-        bluf_lineno = None
-
-        # 검증 참조 스팬은 길이에서 뺀다 — 함수명이라 못 쪼갠다. 남은 산문은
-        # 여전히 상한을 진다(참조만 길고 서술은 짧으면 통과, 서술이 길면 리젝).
-        # 스팬 자체가 line_max를 넘으면 면제가 걷힌다(`_strip_review_refs`).
-        measured = _strip_review_refs(line, line_max)
-        # 한 줄에 문장이 여럿이면 리젝 — 길이(80자)와 별개 축이다. 길이는
-        # 프록시라 접기로 우회되지만, 이건 "한 줄 = 한 문장" 구조를 직접 건다.
-        if not _HEADING.match(line) and has_sentence_boundary(measured):
-            _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
-            violations.append(
-                f"{path}:{i}: 한 줄에 문장이 여럿이다 — 문장마다 줄바꿈해 불릿로 "
-                f"빼라(단문이 읽힌다{_reason5})."
-            )
-        # 길이 축에서만 링크 URL(안 쪼개지는 경로)을 마저 벗긴다 — 별도 사본이라
-        # 문장·좌표 검사(measured)엔 영향 없다(면제는 길이 축 한정, `_strip_link_urls`).
-        length_measured = _strip_link_urls(measured)
-        if line_max and len(length_measured) > line_max:
-            _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
-            violations.append(
-                f"{path}:{i}: {len(length_measured)}자 > {line_max}자 — 흐름을 우겨넣지 "
-                f"말고 함축해라(상한은 채울 칸이 아니다{_reason5})."
-            )
-        if kind not in _COORD_EXEMPT_TYPES:
-            for coord in _COORD.findall(measured):
-                cite3 = _rule_cite(RULE_DOC_AUTHORING, "제3조")
-                violations.append(
-                    f"{path}:{i}: 손으로 친 줄번호 좌표({coord}) — 편집마다 밀려 "
-                    f"stale된다{cite3}. 심볼명이나 SHA-고정 경로를 써라."
-                )
+        line_violations, bluf_lineno = _check_line(
+            path, i, line, line_max, bluf_max, kind, bluf_lineno
+        )
+        violations.extend(line_violations)
 
     return violations, warnings
 
