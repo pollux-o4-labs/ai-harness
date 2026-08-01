@@ -85,11 +85,15 @@ _WARN_LINE_FACTOR = 0.7
 _BLOAT_VIOLATION_TAG = "줄 — 문서가 비대하다"
 _BLOAT_WARNING_TAG = "줄 — 경고선을 넘었다"
 
-# 폴더 파일 수 경고선 — 실측: 이 저장소 rules 13 · docs_format 9 · history 6 ·
-# agents 5, 형제 저장소는 rules 15 · features 15 · guide/usage 14. 대부분
-# 열 이하이고 넘는 사례가 13~15에서 나온다. 반려는 두지 않는다 — 스코프가
-# 실제로 겹치는지는 사람이 판정한다([topic-folders 규칙](rules/topic-folders-when-scope-overlaps.md)
-# 제1조).
+# 폴더 파일 수 경고선 — 사람이 한 화면에서 훑을 수 있는 크기에서 왔다.
+# 반려는 두지 않는다: 개수는 스코프 겹침의 대리 지표일 뿐이고 실제 판정은
+# 사람이 한다(`rules/topic-folders-when-scope-overlaps.md` 제1조).
+#
+# **정직 표기**: 이 값은 첫 근사치다. 도입 시점 실측에서는 대부분의 폴더가
+# 이 선 아래였고 넘는 것이 소수였다 — 수치를 여기 옮겨 적지 않는다(세면
+# 나오는 값이라 옮기는 순간 낡는다, doc-authoring-norms 제3조). 경고가 너무
+# 자주 울려 잡음이 되거나, 갈려야 할 폴더를 놓치는 관측이 나오는 시점이
+# 재판정 시점이다.
 _FOLDER_FILE_COUNT_WARN = 10
 
 # 주: gen_readmes.py 등에도 동일 상수를 둔다 — 이 스크립트는 stdlib only라
@@ -660,8 +664,7 @@ def _staged_blob(path: Path) -> str:
 
     워킹트리(`path.read_text`)가 아니라 이걸 검사해야 staged diff의 added-set과
     같은 콘텐츠·좌표계가 된다. 안 그러면 add 후 재편집·부분 스테이징으로 둘이
-    갈라져 위반이 엉뚱한 줄번호로 계산돼 조용히 버려진다(fail-open). 이 repo의
-    watermark.py::read_committed_text가 같은 병을 이미 이 방식으로 고쳤다. 인덱스에
+    갈라져 위반이 엉뚱한 줄번호로 계산돼 조용히 버려진다(fail-open). 인덱스에
     없으면(비정상) 워킹트리로 폴백한다."""
     out = subprocess.run(
         ["git", "show", f":{path.as_posix()}"],
