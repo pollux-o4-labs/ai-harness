@@ -58,6 +58,16 @@ _EXTERNAL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 _RELTARGET_RE = re.compile(r"\]\((\.\.?/[^)\s#]*)")
 
 
+
+def _write_lf(path: Path, content: str) -> None:
+    """줄바꿈을 LF로 고정해 쓴다 — 생성물이 플랫폼마다 달라지면 안 된다.
+
+    `Path.write_text`의 `newline` 인자는 3.10부터라 선언 하한(3.9)에서
+    TypeError를 낸다. `open`의 같은 인자는 오래전부터 있어 그것을 쓴다.
+    """
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+
 def _tracked_md(root: Path) -> list[str]:
     """root 아래 git 추적 중인 .md 상대경로(posix) 목록.
 
@@ -156,7 +166,7 @@ def rewrite_file(path: Path, s_old: str, s_new: str, move_map: dict[str, str]) -
         out_lines.append(_LINK_RE.sub(repl, line))
 
     if changed:
-        path.write_text("\n".join(out_lines), encoding="utf-8", newline="\n")
+        _write_lf(path, "\n".join(out_lines))
     return changed
 
 

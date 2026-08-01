@@ -114,14 +114,14 @@ def test_no_arg_writes_generated_file(tmp_path):
 def test_check_passes_when_file_matches_generated(tmp_path):
     target = tmp_path / gpt.TEMPLATE_RELPATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(gpt.render(), encoding="utf-8", newline="\n")
+    gpt._write_lf(target, gpt.render())
     assert gpt.main(["--root", str(tmp_path), "--check"]) == 0
 
 
 def test_check_fails_when_file_diverges(tmp_path):
     target = tmp_path / gpt.TEMPLATE_RELPATH
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(gpt.render().replace("가독성", "손으로바꾼텍스트"), encoding="utf-8", newline="\n")
+    gpt._write_lf(target, gpt.render().replace("가독성", "손으로바꾼텍스트"))
     assert gpt.main(["--root", str(tmp_path), "--check"]) != 0
 
 
@@ -134,7 +134,7 @@ def test_check_does_not_write_file_on_mismatch(tmp_path):
     target = tmp_path / gpt.TEMPLATE_RELPATH
     target.parent.mkdir(parents=True, exist_ok=True)
     stale = gpt.render().replace("가독성", "손으로바꾼텍스트")
-    target.write_text(stale, encoding="utf-8", newline="\n")
+    gpt._write_lf(target, stale)
     gpt.main(["--root", str(tmp_path), "--check"])
     assert target.read_text(encoding="utf-8") == stale
 
