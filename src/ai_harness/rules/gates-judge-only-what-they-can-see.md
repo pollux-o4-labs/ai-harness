@@ -84,8 +84,7 @@
 
 기계 게이트는 없다.
 
-"이 대상이 유한한가"는 그 자체가 판단이라 기계가 못 가른다 — 이 규칙은 자기
-자신에게도 걸린다.
+"이 대상이 유한한가"는 그 자체가 판단이라 기계가 못 가른다 — 이 규칙은 자기 자신에게도 걸린다.
 
 게이트 신설을 제안하는 변경에서 리뷰어가 이 조문을 근거로 판정한다.
 
@@ -94,6 +93,7 @@
 ## 관련
 
 - [기각 사례 — 손글씨를 재생산으로 가르려던 시도](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-classify-handwritten-by-reproducibility.md)
+- 코드 게이트 결함 실측 둘: [자동생성 마커 부분매치](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-autogen-marker-substring-match-hides-violations.md) · [내부용어 목록 게이트 — 제1조·제2조 근거](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-jargon-list-gate-chases-an-open-set.md).
 - 이월조항이 무엇을 보호하는지는 `check_pr_body`의 셸 명령 파싱 주석이 보여준다.
   그 주석은 근본 해결이 불가능함을 스스로 적어 두었다 — 이 조를 근거로 걷어낼
   대상이 아니라, 한계를 밝혀 둔 채로 두는 대상이다.

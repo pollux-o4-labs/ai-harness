@@ -37,14 +37,12 @@ uv tool install git+https://github.com/pollux-o4-labs/ai-harness.git
 ## 사용
 
 ```bash
-ai-harness check-pr        # PR 본문 구조·분량 게이트
-ai-harness check-doc       # 문서 폼(줄 예산) 게이트
-ai-harness gen-readmes     # BLUF 기반 README 자동 생성
-ai-harness gen-pr-template # PR 템플릿 생성(REQUIRED_CHECKS 등에서 파생, --check 드리프트 감시)
-ai-harness install-hooks   # pre-commit 훅 설치
-ai-harness install-agents  # 리뷰어 에이전트 템플릿 설치(.claude/agents/, 기존은 보존)
-ai-harness install-rules   # 공용 규칙 조문 설치(.claude/rules/, --user면 홈)
+ai-harness check-pr    # PR 본문 구조·분량 게이트
+ai-harness check-doc   # 문서 폼(줄 예산) 게이트
+ai-harness gen-readmes # BLUF 기반 README 자동 생성
 ```
+
+채택 절차와 전체 명령·역할은 [docs/adopting.md](docs/adopting.md)가 정본이다.
 
 ## 저장소별 설정
 
@@ -52,8 +50,6 @@ ai-harness install-rules   # 공용 규칙 조문 설치(.claude/rules/, --user�
 없으면 번들 기본값으로 동작한다.
 기본은 전 게이트 켬이고, 안 맞는 저장소만 `DISABLED_GATES`로 그 게이트를 끈다.
 각 값의 의미는 `gate_config.py` 주석이 정본이다.
-
-채택 절차·게이트 목록은 [docs/adopting.md](docs/adopting.md)에 있다.
 
 ## 검증
 
