@@ -516,7 +516,7 @@ def _check_line(
     kind: str | None,
     bluf_lineno: int | None,
 ) -> tuple[list[str], int | None]:
-    """한 줄에 BLUF 길이·접힘, 한 줄 한 문장 + 길이, 손글씨 좌표를 판정한다.
+    """한 줄에 BLUF 길이·접힘, 한 줄 한 문장 + 길이, 손으로 친 좌표를 판정한다.
 
     반환은 (이 줄이 낸 위반들, 다음 줄에 넘길 bluf_lineno)다. BLUF 접힘 판정은
     "바로 다음 줄"을 봐야 해서 줄을 건너 상태를 지니므로, 호출자 루프가 이
