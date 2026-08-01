@@ -11,6 +11,7 @@
 - `test_gen_pr_template.py` — gen_pr_template의 REQUIRED_CHECKS 렌더·계층 재현·--check 드리프트 감시·check_pr_body 교차검증을 검증.
 - `test_gen_readmes.py` — gen_readmes의 --staged 스코프(스테이징된 경로의 조상 폴더만 검사)를 검증하는 회귀.
 - `test_gen_readmes_guard.py` — gen_readmes의 자동생성 블록 파괴 방지와 gitignore 폴더 제외를 검증하는 회귀.
+- `test_gh_command.py` — gh_command(gh 명령줄 값 추출)의 순수 단위테스트 — 본문·제목·머지 대상·저장소 파싱만 검사. 훅 통합·`gh pr view` 조회를 대역으로 세우는 검사는 test_check_pr_body.py에 남는다.
 - `test_hook_pr_template_check.py` — pre-commit 훅에 배선된 gen-pr-template --check가 서식 미사용 저장소는 막지 않고, 서식이 있고 어긋난 저장소는 막는지 실제 훅(bash)을 실행해 검증.
 - `test_install_agents.py` — install-agents가 동봉 리뷰어 템플릿을 대상 .claude/agents/(또는 --user면 ~/.claude/agents/)로 복사하고 기존 커스터마이즈는 보존하는지 검증(install_agents.py).
 - `test_install_hooks.py` — install-hooks가 대상 저장소(git 루트)의 .git/hooks로 동봉 훅을 멱등 설치하는지 검증(install_hooks.py).
