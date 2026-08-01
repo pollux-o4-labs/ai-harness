@@ -7,5 +7,6 @@
 - `B-jargon-list-gate-chases-an-open-set.md` — 내부 용어를 목록으로 쫓는 게이트는 무한 집합을 상대하므로 걷어내고 리뷰어에게 넘긴다.
 - `B-local-path-tool-install-serves-cached-build.md` — 로컬 경로 `uv tool install --force .`는 새 코드를 반영하지 않고 exit 0을 내므로, 갱신엔 `--reinstall`을 쓴다.
 - `B-refs-keyword-does-not-close-issue.md` — `Refs`는 종료 키워드가 아니라 완결된 이슈가 안 닫혔다 — 완결이면 `Closes`를 쓴다.
+- `B-shared-line-cap-150-breaks-agents-form.md` — 반려선을 전 유형 공통 150으로 통일하는 안을 기각한다.
 
 <!-- BLUF-INDEX:END -->
