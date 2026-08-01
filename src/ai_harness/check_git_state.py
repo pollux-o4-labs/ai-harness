@@ -50,17 +50,16 @@ from __future__ import annotations
 import json
 import os
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+from ai_harness.shell_scan import split_segments, tokenize
 
 # 런타임 무력화 스위치(감독 밸브). "=0"만 무력화로 본다 — 미설정=켜짐(기본 보호).
 _ENV_DISABLE = "AI_HARNESS_GIT_STATE_GUARD"
 
 # 셸 문장 경계 — 명령을 세그먼트로 나눠 각 세그먼트에서 git 호출을 찾는다.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|", "&"})
-
 # `VAR=val git ...`의 선행 환경 대입(등호 앞이 순수 식별자).
 _ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
@@ -75,37 +74,6 @@ _GIT_GLOBAL_VALUE_FLAGS = frozenset(
 _STASH_SAFE = frozenset(
     {"pop", "apply", "list", "show", "drop", "clear", "branch", "create", "store"}
 )
-
-
-def tokenize(command: str) -> list[str]:
-    """명령 문자열을 토큰으로 나누되, 셸 연산자(;·&&·||·|·&)가 **공백 없이 붙어
-    있어도** 독립 토큰으로 떼어낸다.
-
-    `shlex.split`은 공백 분리 토크나이저라 셸 문법을 모른다 — `git reset --hard;
-    git clean -fd`를 `['git','reset','--hard;',...]`로 잘라 `;`가 `--hard`에 들러
-    붙는다. 그러면 세그먼트가 안 갈리고 `"--hard" in args`가 어긋나 폐기형 판정을
-    통째로 놓친다(실측 회귀). `punctuation_chars=True`는 `();<>|&`·`;`를 punctuation
-    으로 떼되 따옴표 안(`-m "a; b"`)은 보존한다. 미닫힌 따옴표는 ValueError를
-    던지고, 호출자 find_block이 fail-open으로 받는다."""
-    lex = shlex.shlex(command, posix=True, punctuation_chars=True)
-    lex.whitespace_split = True
-    return list(lex)
-
-
-def split_segments(argv: list[str]) -> list[list[str]]:
-    """argv를 셸 연산자(&&·||·;·|·&) 경계로 세그먼트 나눈다."""
-    seg: list[str] = []
-    out: list[list[str]] = []
-    for tok in argv:
-        if tok in _SHELL_OPERATORS:
-            if seg:
-                out.append(seg)
-                seg = []
-        else:
-            seg.append(tok)
-    if seg:
-        out.append(seg)
-    return out
 
 
 def git_invocation(seg: list[str]) -> tuple[str, list[str], str | None] | None:

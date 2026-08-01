@@ -28,6 +28,13 @@ from pathlib import Path
 
 from ai_harness.gate_config import EXTRA_AUTOGEN_MARKERS, EXTRA_WHITELIST, RULE_DOC_AUTHORING
 from ai_harness.gate_config import rule_cite as _rule_cite
+from ai_harness.line_shapes import (
+    LINE_CHARS_PATTERN,
+    MAX_LINES_PATTERN,
+    extract_budgets,
+    has_sentence_boundary,
+    is_fence_line,
+)
 
 # CWD가 아니라 이 스크립트 자신의 위치에 앵커링한다 — CWD 상대였을 때 다른
 # 디렉터리에서 불러오면 폼을 못 찾고, 그러면 아래 load_budgets가 빈 dict를
@@ -35,13 +42,13 @@ from ai_harness.gate_config import rule_cite as _rule_cite
 # (회귀: 같은 파일이 CWD만 바꿔도 판정이 뒤집힘).
 FORM_DIR = Path(__file__).resolve().parent / "docs_format"
 
-# 폼에서 예산을 뽑는 패턴. 폼이 정본이므로 수치는 코드에 없다.
-# 실제 폼 문구는 "100줄 · 산문 한 줄 80자 · BLUF 한 줄 100자(마커 제외)."이지
-# "…이하" 접미사가 없다 — 접미사를 요구하면 4개 폼 전부 매칭 실패로 예산이
-# 항상 빈 dict가 되어 게이트가 조용히 무력화된다(회귀 방지).
+# 폼에서 예산을 뽑는 패턴. 폼이 정본이므로 수치는 코드에 없다. line_chars·
+# max_lines는 check_pr_body.py의 코멘트 예산과 문구 관례가 같아
+# line_shapes.py의 공유 정본을 쓴다 — bluf_chars는 이 파일에서만 소비돼
+# 여기 남는다(line_shapes.extract_budgets 참고).
 _BUDGET_PATS = {
-    "line_chars": re.compile(r"산문 한 줄 (\d+)자"),
-    "max_lines": re.compile(r"(\d+)줄"),
+    "line_chars": LINE_CHARS_PATTERN,
+    "max_lines": MAX_LINES_PATTERN,
     "bluf_chars": re.compile(r"BLUF 한 줄 (\d+)자"),
 }
 
@@ -99,7 +106,7 @@ _BLUF = re.compile(r"^>\s*\*\*BLUF:\*\*\s*")
 # (실측: docs/history/B-local-path-tool-install-serves-cached-build.md). 길이도
 # 문장수도 안 걸리는 형태라 여기서 형식으로 직접 잡는다.
 _BLUF_CONT = re.compile(r"^>\s*\S")
-_FENCE = re.compile(r"^\s*```")
+# 펜스 판정(is_fence_line)의 정본·한계는 line_shapes.py.
 _TABLE_ROW = re.compile(r"^\s*\|")
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # features 문서의 검증 참조 — `[✅ 파일::함수]`·`[⚠️ …]`·`[🔴 …]`. 테스트
@@ -108,29 +115,7 @@ _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # **단 면제에는 상한이 있다** — `_strip_review_refs` 참고.
 _REVIEW_REF = re.compile(r"\[(?:✅|⚠️|🔴)[^\]]*\]")
 
-# 문장 종결 부호 — 비숫자 뒤 `[.?!] ` + 그 뒤에 다음 문장(비공백)이 이어질 때.
-# 이게 산문 줄 안에 있으면 한 줄에 문장이 여럿이라는 뜻이다(흐름 우겨넣기).
-# check_pr_body.py에 같은 정규식이 복제돼 있다(그 파일 주석 참고) — 고치면
-# 그쪽도 같이 고쳐야 한다.
-# - 마침표뿐 아니라 물음표·느낌표도 종결로 본다(실측: reviewer-direction.md에
-#   물음표 유형 문장 경계 미검출 사례가 있었다).
-# - 앞이 숫자·마침표면 배제 → 소수(0.85)·번호(1. )·말줄임(`...`)이 안 걸린다.
-# - 뒤가 공백 아니면 배제 → 코드(config.py)·경로가 안 걸린다.
-# - 뒤가 줄 끝/참조뿐이면 배제 → "불변 서술. [✅ test]"는 한 문장이라 통과
-#   (검증 참조를 뺀 measured가 "…. "로 끝나 다음 문장이 없다).
-# 80자(길이 프록시)와 병존 — 이건 구조를 강제한다.
-#
-# 한계(정직 표기, 실측): 종결 부호 뒤에 공백이 없으면 못 잡는다 — 산문에서
-# 문장경계를 규칙만으로 완전히 뽑을 수는 없다(게이트는 볼 수 있는 것만
-# 판정한다, 무한 대상). `e.g.`·`U.S.` 같은 영문 약어 표기는 이 정규식의
-# 오탐 후보다(마침표 뒤 공백 + 다음 문장을 진짜 문장 종결로 오인).
-#
-# 재판정 트리거(정직 표기): 지금은 이 저장소·형제 저장소 문서 전체에 그런
-# 영문 약어 표기가 없어 오탐이 실측되지 않았을 뿐이다 — 없다는 사실이 이
-# 게이트를 정당화하지 않는다. 그런 표기가 산문에 실제로 등장해 오탐으로
-# 걸리는 순간이 재판정 시점이다(주기 재판정이 아니라 관측 시점 재판정).
-# 그 전까지는 유지한다.
-_SENTENCE_END = re.compile(r"(?<![0-9.])[.?!] (?=\S)")
+# 문장 경계 판정(has_sentence_boundary)의 정본·한계·재판정 트리거는 line_shapes.py.
 
 # 마크다운 헤딩(`## A. 환경` 등)은 산문 흐름이 아니라 구조 라벨이라 문장 규칙에서
 # 뺀다 — 라벨의 `A.`가 문장 끝으로 오인돼(숫자 `1.`은 앞자리 숫자로 배제되지만
@@ -264,12 +249,7 @@ def load_budgets(form_name: str) -> dict[str, int]:
     if not path.is_file():
         return {}
     text = path.read_text(encoding="utf-8")
-    out: dict[str, int] = {}
-    for key, pat in _BUDGET_PATS.items():
-        m = pat.search(text)
-        if m:
-            out[key] = int(m.group(1))
-    return out
+    return extract_budgets(text, _BUDGET_PATS)
 
 
 def doc_type(path: Path) -> str | None:
@@ -375,7 +355,7 @@ def _iter_checkable_lines(lines: list[str]) -> Iterator[tuple[int, str]]:
             if "-->" not in line:
                 in_comment = True
             continue
-        if _FENCE.match(line):
+        if is_fence_line(line):
             in_fence = not in_fence
             continue
         # 표 행·코드펜스·자동생성 블록은 면제 — 앞의 둘은 쪼개면 깨지고,
@@ -465,7 +445,7 @@ def _check_content(path: Path, text: str) -> list[str]:
         measured = _strip_review_refs(line, line_max)
         # 한 줄에 문장이 여럿이면 리젝 — 길이(80자)와 별개 축이다. 길이는
         # 프록시라 접기로 우회되지만, 이건 "한 줄 = 한 문장" 구조를 직접 건다.
-        if not _HEADING.match(line) and _SENTENCE_END.search(measured):
+        if not _HEADING.match(line) and has_sentence_boundary(measured):
             _reason5 = f", {RULE_DOC_AUTHORING} 제5조" if RULE_DOC_AUTHORING else ""
             violations.append(
                 f"{path}:{i}: 한 줄에 문장이 여럿이다 — 문장마다 줄바꿈해 불릿로 "

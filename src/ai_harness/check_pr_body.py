@@ -59,7 +59,6 @@ from __future__ import annotations
 
 import json
 import re
-import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -72,9 +71,19 @@ from ai_harness.gate_config import (
     rule_cite as _rule_cite,
 )
 # 체크리스트 섹션명은 이 파일 로직이 직접 쓰고, 테스트도 `cpb.CHECKLIST_SECTION`
-# 으로 읽는다. 줄 형태 판정 두 함수는 여기서 재노출하지 않는다 — 쓰는 쪽이
-# gate_config 하나뿐이라 그쪽이 line_shapes에서 바로 가져가면 된다.
-from ai_harness.line_shapes import CHECKLIST_SECTION
+# 으로 읽는다. `is_issue_ref_line`·`is_checkbox_line`은 여기서 재노출하지
+# 않는다 — 쓰는 쪽이 gate_config 하나뿐이라 그쪽이 line_shapes에서 바로
+# 쓰면 된다. 아래 넷(펜스·문장 경계·예산 파싱)은 이 파일 자기 로직이
+# 직접 소비하므로 그대로 쓴다.
+from ai_harness.line_shapes import (
+    CHECKLIST_SECTION,
+    LINE_CHARS_PATTERN,
+    MAX_LINES_PATTERN,
+    extract_budgets,
+    has_sentence_boundary,
+    is_fence_line,
+)
+from ai_harness.shell_scan import SHELL_OPERATORS, tokenize
 
 # 이 dict가 PR 본문 예산의 정본이다 — 문서·템플릿은 이 값을 재서술하지 말고
 # 이 파일을 가리킬 것. 위반 메시지가 실측값과 함께 예산을 알려주므로 저자는
@@ -91,27 +100,9 @@ _NONE_LINE = re.compile(r"^\s*(?:없음|N/?A)\s*$", re.IGNORECASE)
 _EXEMPT_SHAPE = build_exempt_shape()
 
 
-# 문장 종결 부호 — check_doc_form과 동일 규칙("한 줄 한 문장")이다. 두
-# 게이트 파일이 서로 직접 걸치지 않게 하는 격리 설계라 이 둘끼리는 안 합치고
-# 정규식을 복제한다(제3의 공용 모듈로 뽑는 것은 별개 논의, 지금 범위 아님) —
-# 그래서 이 정규식을 고치면 check_doc_form.py의 사본도 같이 고쳐야 한다.
-# 마침표뿐 아니라 물음표·느낌표도 종결로 본다(실측: reviewer-direction.md에
-# 물음표 유형 문장 경계 미검출 사례가 있었다). 앞이 숫자·마침표면 배제(소수·
-# 번호·말줄임), 뒤가 공백 아니면 배제(코드·경로), 뒤에 다음 문장(비공백)이
-# 이어질 때만 걸린다.
-#
-# 한계(정직 표기, 실측): 종결 부호 뒤에 공백이 없으면(원고 교정 없이 붙여 쓴
-# 경우) 못 잡는다 — 산문에서 문장경계를 규칙만으로 완전히 뽑을 수는 없다
-# (게이트는 볼 수 있는 것만 판정한다, 무한 대상). `e.g.`·`U.S.` 같은 영문
-# 약어 표기는 이 정규식의 오탐 후보다(마침표 뒤 공백 + 다음 문장을 진짜 문장
-# 종결로 오인).
-#
-# 재판정 트리거(정직 표기): 지금은 이 저장소·형제 저장소 문서 전체에 그런
-# 영문 약어 표기가 없어 오탐이 실측되지 않았을 뿐이다 — 없다는 사실이 이
-# 게이트를 정당화하지 않는다. 그런 표기가 산문에 실제로 등장해 오탐으로
-# 걸리는 순간이 재판정 시점이다(주기 재판정이 아니라 관측 시점 재판정).
-# 그 전까지는 유지한다.
-_SENTENCE_END = re.compile(r"(?<![0-9.])[.?!] (?=\S)")
+# 문장 경계 판정(has_sentence_boundary)의 정본·한계·재판정 트리거는
+# line_shapes.py — check_doc_form.py와 이 파일이 같은 "한 줄 한 문장" 규칙을
+# 그 정본 하나로 공유한다.
 REQUIRED_CHECKS: tuple[str, ...] = (
     "가독성을 높이는 검수를 진행했다 (PR body 및 comment 대상)",
     "과한 내부 은어 사용 검수했다",
@@ -129,18 +120,18 @@ REQUIRED_CHECKS: tuple[str, ...] = (
     "동작을 깨는 변경(breaking change)이라면 본문에 명시했다",
 )
 
-# `gh pr comment` 예산의 정본 — 이 dict는 이 파일에 없다. check_doc_form의
-# _BUDGET_PATS와 같은 문구 관례를 파싱하지만, 두 게이트 파일을 서로 걸치지
-# 않게 하는 격리 설계라(위 _SENTENCE_END와 같은 이유) 정규식을 복제한다.
-# 폼 파일이 없으면 코멘트 게이트·리뷰 근거 검사가
-# fail-closed로 리젝한다(우회가 아니라 "아직 안 채운 설정"임을 알리는 것) —
-# 저장소가 이 경로에 폼 파일을 작성하면 그때부터 켜진다.
+# `gh pr comment` 예산의 정본 — 이 dict는 이 파일에 없다. 문구 관례 파싱
+# 정규식은 check_doc_form.py의 `_BUDGET_PATS`와 line_shapes.py의 공유 정본을
+# 함께 쓴다(키 집합과 폼 파일 경로만 이 파일이 따로 갖는다). 폼 파일이 없으면
+# 코멘트 게이트·리뷰 근거 검사가 fail-closed로 리젝한다(우회가 아니라 "아직
+# 안 채운 설정"임을 알리는 것) — 저장소가 이 경로에 폼 파일을 작성하면
+# 그때부터 켜진다.
 _COMMENT_FORM_PATH = (
     Path(__file__).resolve().parent / "docs_format" / "pr-comment.md"
 )
 _COMMENT_BUDGET_PATS = {
-    "line_chars": re.compile(r"산문 한 줄 (\d+)자"),
-    "max_lines": re.compile(r"(\d+)줄"),
+    "line_chars": LINE_CHARS_PATTERN,
+    "max_lines": MAX_LINES_PATTERN,
 }
 
 # 리뷰 종합 코멘트 헤더 접두어("## 리뷰 종합") — pr-comment.md의 예시 문구
@@ -157,11 +148,15 @@ _REVIEW_LABELS_PAT = re.compile(r"등급 라벨\(닫힌 집합\):\s*(.+?)\.")
 
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 _H2 = re.compile(r"^##\s+(.+?)\s*$")
-_FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
+# 펜스 블록을 통째로 벗겨내는 전체 텍스트 치환 — 줄 단위 토글인
+# `is_fence_line`과 매칭 단위가 달라 그 함수로 대체하지 못한다(이쪽은 여는
+# 펜스와 닫는 펜스의 짝을 정규식 하나로 찾는다). 다만 백틱·틸드 둘 다 받아야
+# 하는 것은 같다 — 한쪽만 알면 같은 문서가 코멘트로는 통과하고 본문으로는
+# 리젝된다. `is_fence_line`과 같은 수준이며 펜스 길이 일치는 검사하지 않는다.
+_FENCED_CODE = re.compile(r"```.*?```|~~~.*?~~~", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
-# 코멘트 줄 검사용 펜스 토글 — check_doc_form.py의 _FENCE와 같은 정규식이지만
-# 위와 같은 이유(격리 설계)로 복제한다.
-_FENCE_LINE = re.compile(r"^\s*```")
+# 코멘트 줄 검사용 펜스 토글은 is_fence_line(line_shapes.py)을 쓴다 — 정본·
+# 한계는 그쪽 참고.
 _CHECKED_ITEM = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+?)\s*$")
 
 
@@ -241,7 +236,7 @@ def check_sentences(sections: dict[str, str]) -> list[str]:
             continue
         clean = strip_code(strip_html_comments(sections[name]))
         for i, line in enumerate(clean.splitlines(), 1):
-            if _SENTENCE_END.search(line):
+            if has_sentence_boundary(line):
                 violations.append(
                     f"섹션 '## {name}' {i}번째 줄에 문장이 여럿 — "
                     f"문장마다 줄바꿈해 불릿로 빼라(마침표·물음표·느낌표 뒤에서 끊는다)."
@@ -347,12 +342,7 @@ def load_comment_budgets() -> dict[str, int]:
     text = _read_comment_form_text()
     if text is None:
         return {}
-    out: dict[str, int] = {}
-    for key, pat in _COMMENT_BUDGET_PATS.items():
-        m = pat.search(text)
-        if m:
-            out[key] = int(m.group(1))
-    return out
+    return extract_budgets(text, _COMMENT_BUDGET_PATS)
 
 
 def load_review_header_prefix() -> str | None:
@@ -431,7 +421,7 @@ def check_comment(body: str) -> list[str]:
     # 펜스 마커 줄 번호를 먼저 모두 모으고 앞에서부터 짝짓는다 — 짝이 맞는
     # 구간만 면제고, 마지막이 홀수로 남으면(안 닫힘) 그 구간은 EOF까지 면제
     # 하지 않는다(fail-closed).
-    fence_lines = [i for i, line in enumerate(lines, 1) if _FENCE_LINE.match(line)]
+    fence_lines = [i for i, line in enumerate(lines, 1) if is_fence_line(line)]
     exempt: set[int] = set()
     for open_i, close_i in zip(fence_lines[0::2], fence_lines[1::2]):
         exempt.update(range(open_i, close_i + 1))
@@ -445,7 +435,7 @@ def check_comment(body: str) -> list[str]:
     for i, line in enumerate(lines, 1):
         if i in exempt:
             continue
-        if _SENTENCE_END.search(line):
+        if has_sentence_boundary(line):
             violations.append(
                 f"코멘트 {i}번째 줄에 문장이 여럿 — 문장마다 줄바꿈해 불릿로 "
                 f"빼라(마침표·물음표·느낌표 뒤에서 끊는다)."
@@ -582,16 +572,14 @@ def _resolve_body_file(raw: str) -> tuple[str | None, str | None]:
 
 # gh 호출 매칭·본문 탐색 공통 인프라 — create·merge·comment 셋 다 이 위에 선다.
 #
-# CRITICAL(실사고): 파이썬 heredoc 안의 주석 한 줄("# gh pr comment preceded by
-# env assignment")이 shlex.split 결과에서 "gh","pr","comment"가 인접해 gh
-# 호출로 오인됐다 — gh를 부르지도 않은 명령이 리젝됐다. **근본 해결은
-# 불가능하다**: shlex는 진짜 셸 파서가 아니라 주석·heredoc·문자열 안 평문을
-# 구별 못 한다. 대신 두 가지로 피해를 줄인다 — (1) --body/--body-file 탐색을
-# 매칭된 gh 호출과 같은 셸 세그먼트로 좁혀 무관한 다른 명령의 플래그를 오인해
-# 붙잡지 않게 하고(국소성), (2) 그래도 리젝될 땐 어떤 토큰을 gh 호출로 인식
-# 했는지 사유에 노출해 오탐 자기진단 비용을 줄인다.
-_SHELL_OPERATORS = frozenset({"&&", "||", ";", "|"})
-
+# CRITICAL(실사고): 주석 한 줄("# gh pr comment preceded by env assignment")이
+# 토큰화 결과에서 "gh","pr","comment"로 인접해 gh 호출로 오인됐다 — gh를
+# 부르지도 않은 명령이 리젝됐다. 공용 `tokenize`가 주석을 인식하므로 그 사례는
+# 재발하지 않는다. 다만 **완전한 해결은 아니다** — heredoc과 문자열 안 평문은
+# 이 토큰화로도 구별하지 못한다. 그래서 두 방어를 유지한다 —
+# (1) --body/--body-file 탐색을 매칭된 gh 호출과 같은 셸 세그먼트로 좁혀 무관한
+# 다른 명령의 플래그를 오인해 붙잡지 않게 하고(국소성), (2) 그래도 리젝될 땐
+# 어떤 토큰을 gh 호출로 인식했는지 사유에 노출해 오탐 자기진단 비용을 줄인다.
 # gh의 값-소비 전역 플래그 — subcommand(pr create·pr comment·pr merge) 앞에
 # 올 수 있다(`gh --repo o/r pr comment ...`). 완결 목록이 아니다(상습범
 # 목록 방식) — 새로 관측되면 추가한다.
@@ -660,7 +648,7 @@ def _segment_end(argv: list[str], start: int) -> int:
     문장 안으로만 좁힌다(국소성) — `&&`로 이어진 다음 명령의 플래그를 이
     호출 소속으로 오인하지 않는다."""
     for j in range(start, len(argv)):
-        if argv[j] in _SHELL_OPERATORS:
+        if argv[j] in SHELL_OPERATORS:
             return j
     return len(argv)
 
@@ -683,8 +671,8 @@ def _match_diagnostic(argv: list[str], span: tuple[int, int], subcommand: str) -
     gh_i, subcmd_i = span
     return (
         f" [진단: 'gh ... pr {subcommand}'로 인식한 토큰 {gh_i}..{subcmd_i}="
-        f"{argv[gh_i:subcmd_i + 1]!r} — shlex는 셸 문법을 모른다(주석·"
-        f"heredoc·문자열 안 평문도 매칭될 수 있음). 오탐이면 그 주변 원문을 "
+        f"{argv[gh_i:subcmd_i + 1]!r} — 토큰화는 셸 구조를 완전히 알지 못한다"
+        f"(heredoc·문자열 안 평문도 매칭될 수 있음). 오탐이면 그 주변 원문을 "
         f"의심하라.]"
     )
 
@@ -739,7 +727,7 @@ def _extract_body_for_subcommand(command: str, subcommand: str) -> tuple[str | N
     호출자가 '검사 대상 아님'으로 통과시킨다.
     """
     try:
-        argv = shlex.split(command)
+        argv = tokenize(command)
     except ValueError as e:  # 따옴표 안 닫힘 등 — 셸이 알아서 죽는다
         return None, f"명령 파싱 실패({e})"
 
@@ -838,7 +826,7 @@ def extract_title_from_command(command: str) -> tuple[str | None, str | None]:
     반환: (title, reason_if_uninspectable).
     """
     try:
-        argv = shlex.split(command)
+        argv = tokenize(command)
     except ValueError as e:
         return None, f"명령 파싱 실패({e})"
 
@@ -1013,7 +1001,7 @@ def extract_pr_view_from_merge_command(command: str) -> tuple[dict | None, str |
     — 호출자가 '검사 대상 아님'으로 통과시킨다.
     """
     try:
-        argv = shlex.split(command)
+        argv = tokenize(command)
     except ValueError as e:
         return None, f"명령 파싱 실패({e})"
 
