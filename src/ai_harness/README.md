@@ -15,6 +15,7 @@
 - `cli.py` — ai-harness 게이트 서브커맨드 디스패처 — 설치된 단일 CLI가 각 게이트 모듈의 main으로 라우팅한다(로직은 각 모듈이 정본).
 - `config.py` — 대상 저장소가 어디이고 그 값이 무엇인지를 정하는 곳 — gate_config 오버레이(로드·우아한 실패·1회 가드)와 설치기 대상 경로 판정.
 - `gate_config.py` — 게이트 core(check_pr_body.py·check_doc_form.py)의 repo별 설정값 — 이 파일만 레포마다 다르고 나머지 게이트 코드는 전 레포에서 바이트 동일해야 한다.
+- `gen_agents_common.py` — 모든 저장소가 같이 들고 가야 할 판정 축 문구(정본은 이 패키지)를 대상 AGENTS.md에 마커로 감싸 주입 — `--check`로 어긋남을 게이트한다.
 - `gen_pr_template.py` — check_pr_body.py의 REQUIRED_CHECKS 등 정본 상수에서 `.github/PULL_REQUEST_TEMPLATE.md`를 생성하고, `--check`로 드리프트를 감시하는 게이트(LLM 0, gen_readmes.py --check와 동형).
 - `gen_readmes.py` — 각 폴더 하위 문서/폴더의 BLUF를 모아 README.md의 자동 인덱스 블록만 생성·갱신하는 결정적 스크립트(LLM 0).
 - `gh_command.py` — `gh pr create`·`comment`·`merge` 명령 문자열에서 본문·제목·머지 대상·저장소 값을 뽑는다(stdlib only, gh 문법 전용) — PR 품질 판정(check_pr_body.py)과 무관한 순수 파싱 계층.

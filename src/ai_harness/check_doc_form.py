@@ -186,7 +186,8 @@ _COORD = re.compile(r"[\w./-]+\.(?:py|md|sh|json|toml|ya?ml|lock|txt|cfg|ini):\d
 # 추가한다** — "저자가 손댈 수 없는 몫을 저자 예산에 세지 않는다"는 원칙은
 # 마커 종류와 무관하고, 정규식을 손으로 두 군데 고치게 두면 한쪽만 늘어난다.
 _AUTOGEN_MARKERS: tuple[tuple[str, str], ...] = (
-    ("BLUF-INDEX:START", "BLUF-INDEX:END"),      # gen_readmes 롤업
+    ("BLUF-INDEX:START", "BLUF-INDEX:END"),          # gen_readmes 롤업
+    ("AGENTS-COMMON:START", "AGENTS-COMMON:END"),    # gen_agents_common 공용 블록
 ) + tuple(EXTRA_AUTOGEN_MARKERS)
 # **줄 시작 앵커가 핵심이다.** 생성기가 찍는 마커는 언제나 그 줄의 유일한
 # 내용이지만, 프로즈는 마커 문법을 문장 중간에 인용할 수 있다 — 실사고: 그런

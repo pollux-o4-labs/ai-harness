@@ -8,6 +8,7 @@
 - `test_cli.py` — 디스패처가 선언 테이블의 모든 서브커맨드를 실제로 부를 수 있는지 검증 — 모듈 경로가 문자열이라 정적 검사가 오타를 못 잡는다.
 - `test_config.py` — 대상 저장소 gate_config 로드·값 오버레이·프로세스당-1회 가드·우아한 실패를 검증(config.py).
 - `test_gate_config.py` — gate_config.rule_cite의 공란/값-존재 토글 계약을 검증.
+- `test_gen_agents_common.py` — gen_agents_common의 정본 주입·정확 일치 손편집 검출·멱등·마커 없음/중복 처리·--check 드리프트를 검증.
 - `test_gen_pr_template.py` — gen_pr_template의 REQUIRED_CHECKS 렌더·계층 재현·--check 드리프트 감시·check_pr_body 교차검증을 검증.
 - `test_gen_readmes.py` — gen_readmes의 --staged 스코프(스테이징된 경로의 조상 폴더만 검사)를 검증하는 회귀.
 - `test_gen_readmes_guard.py` — gen_readmes의 자동생성 블록 파괴 방지와 gitignore 폴더 제외를 검증하는 회귀.
