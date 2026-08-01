@@ -17,6 +17,7 @@
 - `test_install_hooks.py` — install-hooks가 대상 저장소(git 루트)의 .git/hooks로 동봉 훅을 멱등 설치하는지 검증(install_hooks.py).
 - `test_install_rules.py` — install-rules가 동봉 공용 조문을 대상 .claude/rules/(또는 --user면 ~/.claude/rules/)로 복사하고, 정본이라 기존 사본을 덮는지 검증(install_rules.py).
 - `test_installed_bundle_matches_source.py` — 전역 설치본이 동봉하는 훅·규칙이 이 소스와 바이트 동일한지 대조해, 낡은 설치본이 낡은 훅을 배포하는 조용한 실패를 소스 쪽에서 잡는다.
+- `test_marker_splice.py` — marker_splice(gen_readmes·gen_agents_common 공유 splice 유틸)의 탐색·추출·교체·원자적 쓰기를 독립적으로 검증.
 - `test_relink_docs.py` — relink_docs의 링크 재작성(rewrite)·깨진 링크 스캔(--check)·main 인자 분기를 검증.
 - `test_ruff_clean.py` — ruff check가 위반 0인지 pytest로 고정 — [tool.ruff] 설정이 죽은 값이 아니라 실제 게이트가 되게(CI/훅 신설 없이 pytest 한 방에 흡수).
 
