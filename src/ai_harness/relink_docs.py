@@ -50,9 +50,9 @@ import sys
 from pathlib import Path, PurePosixPath
 
 from ai_harness.config import target_root
+from ai_harness.line_shapes import is_fence_line
 
 _LINK_RE = re.compile(r"(?<!\!)\[([^\]]+)\]\(([^)\s]+)\)")
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _EXTERNAL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.-]*:")
 # --check용: 라벨 무관(소프트랩 대응) 상대경로 타깃 스캐너.
 _RELTARGET_RE = re.compile(r"\]\((\.\.?/[^)\s#]*)")
@@ -122,7 +122,7 @@ def rewrite_file(path: Path, s_old: str, s_new: str, move_map: dict[str, str]) -
     src_dir_new = "" if src_dir_new == "." else src_dir_new
 
     for line in text.split("\n"):
-        if _FENCE_RE.match(line):
+        if is_fence_line(line):
             in_fence = not in_fence
             out_lines.append(line)
             continue
