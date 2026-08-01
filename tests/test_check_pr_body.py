@@ -589,6 +589,20 @@ def test_merge_target_extraction(argv, expected):
     assert cpb._merge_target(argv) == expected
 
 
+def _merge_body(command: str) -> tuple[str | None, str | None]:
+    """merge 명령에서 본문만 꺼낸다 — 아래 검사들이 쓰는 시험 전용 헬퍼.
+
+    프로덕션은 스냅샷 전체(`extract_pr_view_from_merge_command`)를 쓰고 본문만
+    꺼내는 경로는 안 부른다. 그래서 그 얇은 래퍼를 프로덕션에서 걷어내고 이
+    자리로 내렸다 — 검사가 단언하던 계약(merge 감지·저장소 전달·본문 추출)은
+    그대로 남는다.
+    """
+    data, reason = cpb.extract_pr_view_from_merge_command(command)
+    if data is None:
+        return None, reason
+    return data["body"], None
+
+
 @pytest.mark.parametrize("cmd", [
     "git status",
     "gh pr create --fill",
@@ -597,12 +611,12 @@ def test_merge_target_extraction(argv, expected):
 ])
 def test_extract_body_from_merge_non_target_commands(cmd):
     """gh pr merge가 아니면 (None, None) — 훅이 통과시켜야 한다."""
-    assert cpb.extract_body_from_merge_command(cmd) == (None, None)
+    assert _merge_body(cmd) == (None, None)
 
 
 def test_extract_body_from_merge_uses_fetch(monkeypatch):
     _stub_fetch(monkeypatch, body=GOOD_BODY)
-    assert cpb.extract_body_from_merge_command("gh pr merge 42") == (GOOD_BODY, None)
+    assert _merge_body("gh pr merge 42") == (GOOD_BODY, None)
 
 
 def test_extract_body_from_merge_passes_identifier_to_fetch(monkeypatch):
@@ -613,7 +627,7 @@ def test_extract_body_from_merge_passes_identifier_to_fetch(monkeypatch):
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge 42 --squash")
+    _merge_body("gh pr merge 42 --squash")
     assert captured["id"] == "42"
 
 
@@ -626,13 +640,13 @@ def test_extract_body_from_merge_omitted_identifier_passes_none(monkeypatch):
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge --squash")
+    _merge_body("gh pr merge --squash")
     assert captured["id"] is None
 
 
 def test_extract_body_from_merge_fetch_failure_is_fail_closed(monkeypatch):
     _stub_fetch(monkeypatch, reason="gh pr view 실패 — 본문을 못 들여다봄(no pull requests found)")
-    body, reason = cpb.extract_body_from_merge_command("gh pr merge 999")
+    body, reason = _merge_body("gh pr merge 999")
     assert body is None
     assert "못 들여다봄" in reason
 
@@ -1346,7 +1360,7 @@ def test_merge_recognizes_global_repo_flag(monkeypatch):
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    body, reason = cpb.extract_body_from_merge_command("gh --repo o/r pr merge 42")
+    body, reason = _merge_body("gh --repo o/r pr merge 42")
     assert (body, reason) == (GOOD_BODY, None)
     assert captured["id"] == "42"
 
@@ -1363,7 +1377,7 @@ def test_merge_repo_flag_value_reaches_gh_pr_view(monkeypatch):
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge 44 --repo pollux-o4-labs/ai-harness")
+    _merge_body("gh pr merge 44 --repo pollux-o4-labs/ai-harness")
     assert captured["id"] == "44"
     assert captured["repo"] == "pollux-o4-labs/ai-harness"
 
@@ -1378,7 +1392,7 @@ def test_merge_repo_flag_omitted_passes_none(monkeypatch):
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge 42")
+    _merge_body("gh pr merge 42")
     assert captured["repo"] is None
 
 
@@ -1391,7 +1405,7 @@ def test_merge_repo_flag_short_form_reaches_gh_pr_view(monkeypatch):
         return {"body": GOOD_BODY, "comments": [], "headRefOid": "x"}, None
 
     monkeypatch.setattr(cpb, "_fetch_pr_body", fake_fetch)
-    cpb.extract_body_from_merge_command("gh pr merge 42 -R pollux-o4-labs/ai-harness")
+    _merge_body("gh pr merge 42 -R pollux-o4-labs/ai-harness")
     assert captured["repo"] == "pollux-o4-labs/ai-harness"
 
 
