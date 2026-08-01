@@ -94,6 +94,16 @@ def _render_checklist() -> list[str]:
     return lines
 
 
+
+def _write_lf(path: Path, content: str) -> None:
+    """줄바꿈을 LF로 고정해 쓴다 — 생성물이 플랫폼마다 달라지면 안 된다.
+
+    `Path.write_text`의 `newline` 인자는 3.10부터라 선언 하한(3.9)에서
+    TypeError를 낸다. `open`의 같은 인자는 오래전부터 있어 그것을 쓴다.
+    """
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+
 def render() -> str:
     """`.github/PULL_REQUEST_TEMPLATE.md` 전체 텍스트를 생성한다."""
     lines: list[str] = []
@@ -203,7 +213,7 @@ def main(argv: list[str] | None = None, prog: str | None = None) -> int:
         return 0
 
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(generated, encoding="utf-8", newline="\n")
+    _write_lf(target, generated)
     print(f"[gen_pr_template] {target} 생성/갱신.")
     return 0
 

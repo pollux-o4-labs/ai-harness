@@ -110,6 +110,16 @@ DUPLICATE_MARKERS = 3
 WRITE_FAILURE = 4
 
 
+
+def _write_lf(path: Path, content: str) -> None:
+    """줄바꿈을 LF로 고정해 쓴다 — 생성물이 플랫폼마다 달라지면 안 된다.
+
+    `Path.write_text`의 `newline` 인자는 3.10부터라 선언 하한(3.9)에서
+    TypeError를 낸다. `open`의 같은 인자는 오래전부터 있어 그것을 쓴다.
+    """
+    with path.open("w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+
 def read_head(path: Path) -> list[str]:
     try:
         with path.open("r", encoding="utf-8", errors="replace") as f:
@@ -183,7 +193,7 @@ def _write_readme_atomically(readme: Path, content: str) -> None:
     """
     tmp = readme.with_name(f".{readme.name}.tmp")
     try:
-        tmp.write_text(content, encoding="utf-8", newline="\n")
+        _write_lf(tmp, content)
         os.replace(tmp, readme)
     except OSError:
         tmp.unlink(missing_ok=True)
