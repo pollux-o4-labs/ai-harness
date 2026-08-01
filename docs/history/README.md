@@ -9,5 +9,6 @@
 - `B-refs-keyword-does-not-close-issue.md` — `Refs`는 종료 키워드가 아니라 완결된 이슈가 안 닫혔다 — 완결이면 `Closes`를 쓴다.
 - `B-rules-folder-is-hub-not-clusters.md` — 문서 수 경고가 울린 조문 디렉터리를 토픽 폴더로 나누려다 기각한 실측.
 - `B-shared-line-cap-150-breaks-agents-form.md` — 반려선을 전 유형 공통 150으로 통일하는 안을 기각한다.
+- `G-what-ci-covers-and-what-it-does-not.md` — 자동 검증을 들이며 무엇을 제외했는지와 그 근거.
 
 <!-- BLUF-INDEX:END -->
