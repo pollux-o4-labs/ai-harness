@@ -64,7 +64,7 @@ def _build_usage() -> str:
     """`_COMMANDS`에서 usage 텍스트를 렌더 — 이름 열 너비는 가장 긴 이름에
     맞춰 자동으로 정렬된다(하드코딩된 칸 수 없음)."""
     width = max(len(name) for name, *_ in _COMMANDS)
-    lines = ["ai-harness <command> [args...]", "", "commands:"]
+    lines = ["ai-harness <command> [args...]", "", "  -V, --version  설치된 판", "", "commands:"]
     lines.extend(f"  {name:<{width}}  {help_text}" for name, help_text, *_ in _COMMANDS)
     return "\n".join(lines) + "\n"
 
@@ -76,6 +76,13 @@ def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if not args or args[0] in ("-h", "--help"):
         print(_USAGE)
+        return 0
+    if args[0] in ("-V", "--version"):
+        # 설치본에서 판을 읽는다 — 소스에 상수로 또 적지 않는다. 두 자리에
+        # 두면 손으로 맞춰야 하고, 읽는 코드가 없으면 어긋나도 안 걸린다.
+        # 설치된 저장소가 "지금 어느 판을 쓰는가"를 물을 유일한 수단이다.
+        from importlib.metadata import version
+        print(version("ai-harness"))
         return 0
     cmd, rest = args[0], args[1:]
 
