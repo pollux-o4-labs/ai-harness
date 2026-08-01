@@ -29,7 +29,7 @@ uv tool install git+https://github.com/pollux-o4-labs/ai-harness.git
 | `gen-readmes` | 폴더 README BLUF 인덱스 자동생성. `--check`는 drift만 본다. |
 | `gen-pr-template` | `.github/PULL_REQUEST_TEMPLATE.md`를 `REQUIRED_CHECKS` 등에서 생성. `--check`는 drift만 본다. |
 | `install-hooks` | `hooks/`를 `.git/hooks/`로 설치한다. |
-| `install-agents` | 리뷰어 템플릿을 `.claude/agents/`로 설치한다(기존 손질은 보존). |
+| `install-agents` | 리뷰어 템플릿을 `.claude/agents/`로 설치한다(기존 손질은 보존). 채울 자리는 실행 출력이 안내한다. |
 | `install-rules` | 공용 규칙 조문을 `.claude/rules/`로 설치한다(정본이라 덮는다). |
 | `relink-docs` | 토픽 폴더 재편 때 마크다운 링크를 재작성한다. `--check`는 깨진 링크만 스캔한다. |
 
