@@ -1,0 +1,71 @@
+# 이 저장소가 배포되기 전에 기계가 재는 것.
+#
+# **여기 얹을 수 있는 검사의 경계는 `rules/gates-judge-only-what-they-can-see.md`
+# 제1조가 정본이다** — 그 원칙을 여기 다시 적지 않는다. 새 잡을 더하고
+# 싶으면 그 조를 읽고 대상이 유한한지 먼저 판정하라. 문체·의미·스코프
+# 겹침처럼 뜻이 걸린 축은 여기가 아니라 리뷰어가 본다.
+#
+# 착수 근거: 하한 파이썬을 선언해 두고 그 판에서 검사를 돌린 적이 없었다.
+# 돌리니 열일곱이 깨졌다(`fix(compat)` 커밋). 설치는 성공하고 실행하면
+# 깨지는 형태라 설치 시점에 걸리지 않았다. 사람 기억에 기대던 축이며
+# 실제로 놓쳤다 — 그래서 기계로 옮긴다.
+#
+# 여기 없는 것과 그 근거: `docs/history/G-what-ci-covers-and-what-it-does-not.md`
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "integration/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  # 같은 브랜치에 새 커밋이 오면 앞 실행을 접는다 — 낡은 결과를 기다릴 이유가 없다.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    # 선언한 하한부터 최신 안정판까지 전부 돈다. 양끝만 돌려도 이번 유형은
+    # 대개 잡히지만 한계 비용이 0에 가까워 완전성을 택했다(의존성 0 · 판당
+    # 몇 초 · 공개 저장소라 러너 무료).
+    #
+    # **이 목록은 해마다 낡는다.** 새 판이 나오면 최신을 더하고, 하한을
+    # 올릴 때는 pyproject.toml의 requires-python도 같이 고쳐야 한다.
+    # 둘이 갈리면 이 게이트가 잡으려던 결함이 그대로 되살아난다.
+    name: test (py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false  # 한 판이 깨져도 나머지 결과를 봐야 원인이 좁혀진다.
+      matrix:
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run --python ${{ matrix.python }} --isolated pytest -q
+
+  lint:
+    # 한 판에서만 돈다 — 린트 판정은 파이썬 판에 따라 달라지지 않는다.
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv run ruff check src/ tests/
+
+  install:
+    # 검사가 통과해도 설치본이 안 돌 수 있다. 이번 결함이 정확히 그 자리에서만
+    # 드러났다 — 스위트는 소스를 직접 import하지만 사용자는 설치본을 쓴다.
+    # 하한에서 확인한다: 여기서 깨지면 선언과 현실이 어긋난 것이다.
+    name: install smoke (py3.9)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: 빌드해서 깔고 CLI를 실제로 실행한다
+        run: |
+          uv venv --python 3.9 /tmp/venv
+          uv pip install --python /tmp/venv/bin/python .
+          /tmp/venv/bin/ai-harness --help
