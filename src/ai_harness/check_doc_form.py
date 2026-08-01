@@ -99,7 +99,10 @@ _BLUF = re.compile(r"^>\s*\*\*BLUF:\*\*\s*")
 # (실측: docs/history/B-local-path-tool-install-serves-cached-build.md). 길이도
 # 문장수도 안 걸리는 형태라 여기서 형식으로 직접 잡는다.
 _BLUF_CONT = re.compile(r"^>\s*\S")
-_FENCE = re.compile(r"^\s*```")
+# 백틱·틸드 두 펜스 문법을 다 받는다(CommonMark는 둘 다 허용) — relink_docs.py의
+# `_FENCE_RE`와 같은 수준(연 펜스·닫는 펜스의 길이 일치·문자 일관성은 검사하지
+# 않는다. CommonMark 완전판이 아니다).
+_FENCE = re.compile(r"^\s*(?:```|~~~)")
 _TABLE_ROW = re.compile(r"^\s*\|")
 _LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 # features 문서의 검증 참조 — `[✅ 파일::함수]`·`[⚠️ …]`·`[🔴 …]`. 테스트

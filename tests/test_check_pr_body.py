@@ -1108,6 +1108,14 @@ def test_comment_code_fence_line_exempt():
     assert cpb.check_comment(GOOD_COMMENT + fenced) == []
 
 
+def test_comment_tilde_fence_line_exempt():
+    """틸드(`~~~`) 펜스도 백틱과 같은 CommonMark 펜스다 — 안의 긴 줄·문장
+    여럿이 면제되지 않으면 백틱과 판정이 갈린다(실측 결함, check_doc_form.py와
+    같은 결함이 이 파일에도 복제돼 있다)."""
+    fenced = "~~~\n" + ("x" * 90) + "\n첫 문장이다. 둘째 문장.\n~~~\n"
+    assert cpb.check_comment(GOOD_COMMENT + fenced) == []
+
+
 def test_comment_too_many_lines_rejected():
     """40줄(폼 예산) 초과 코멘트는 총량 위반으로 리젝된다."""
     lines_max = cpb.load_comment_budgets()["max_lines"]

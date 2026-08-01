@@ -694,6 +694,15 @@ def test_unclosed_fence_exempts_rest_of_file(real_forms):
     assert cdf.check_file(doc) == []
 
 
+def test_tilde_fence_content_exempt_from_line_length(real_forms):
+    """틸드(`~~~`) 코드펜스도 백틱과 같은 CommonMark 펜스다 — 안의 긴 줄이
+    산문으로 오검사되면 안 된다(실측 결함: relink_docs.py는 이미 둘 다
+    받는데 이 게이트만 백틱만 인식해 판정이 갈렸다)."""
+    content = "~~~\n" + ("x" * 90) + "\n~~~\n"
+    doc = _write_doc("docs/rules/x.md", content)
+    assert cdf.check_file(doc) == []
+
+
 # --- 마크다운 링크 URL 길이 면제 ---------------------------------------------
 # 결정테이블(축: URL길이·라벨길이·URL내공백·문장수):
 #   URL길다·라벨짧다·공백없음  → 길이 통과(면제)          [지금 RED]

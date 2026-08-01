@@ -160,8 +160,10 @@ _H2 = re.compile(r"^##\s+(.+?)\s*$")
 _FENCED_CODE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE = re.compile(r"`[^`]*`")
 # 코멘트 줄 검사용 펜스 토글 — check_doc_form.py의 _FENCE와 같은 정규식이지만
-# 위와 같은 이유(격리 설계)로 복제한다.
-_FENCE_LINE = re.compile(r"^\s*```")
+# 위와 같은 이유(격리 설계)로 복제한다. 백틱·틸드 둘 다 받는다(relink_docs.py
+# `_FENCE_RE`와 같은 수준 — 펜스 길이 일치·문자 일관성은 검사하지 않는다.
+# CommonMark 완전판이 아니다).
+_FENCE_LINE = re.compile(r"^\s*(?:```|~~~)")
 _CHECKED_ITEM = re.compile(r"^\s*-\s*\[[xX]\]\s*(.+?)\s*$")
 
 
