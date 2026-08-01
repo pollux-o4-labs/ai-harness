@@ -52,6 +52,12 @@ _COMMANDS: tuple[tuple[str, str, bool, str], ...] = (
         False,
         "ai_harness.relink_docs",
     ),
+    (
+        "gen-agents-common",
+        "AGENTS.md의 공용 안내 블록 주입(--check로 드리프트 감시)",
+        True,
+        "ai_harness.gen_agents_common",
+    ),
 )
 
 # 게이트 서브커맨드 이름 집합 — 대상 저장소의 gate_config가 끌 수 있는 대상.

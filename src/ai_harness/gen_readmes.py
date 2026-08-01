@@ -31,7 +31,6 @@ gen_readmes.py — BLUF 기반 README 자동 생성기 (결정적 롤업, LLM 0)
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import subprocess
 import sys
@@ -40,6 +39,12 @@ from functools import lru_cache
 from pathlib import Path
 
 from ai_harness.config import target_root
+from ai_harness.marker_splice import compile_markers
+from ai_harness.marker_splice import extract_block as _extract_block
+from ai_harness.marker_splice import marker_occurrences as _marker_occurrences
+from ai_harness.marker_splice import splice as _splice
+from ai_harness.marker_splice import write_atomically as _write_atomically
+from ai_harness.marker_splice import write_lf as _write_lf
 
 # ── 설정 ─────────────────────────────────────────────────────────────────────
 # 번들 패키지의 src/ 경로 — 루트 기본값이 아니라 git-ignore 판정의 폴백 cwd로만 쓴다.
@@ -75,11 +80,10 @@ MARK_END = "<!-- BLUF-INDEX:END -->"
 
 # **줄 시작 앵커가 핵심이다** — 문장 중간 인용은 줄을 시작하지 않으므로 이
 # 앵커에 안 걸린다. 이 처방의 근거·실사고 상세는 check_doc_form.py의
-# `_AUTOGEN_START`/`_AUTOGEN_END` 주석이 정본이다. 정규식 자체는 공유하지
-# 않는다 — 이쪽은 전체 텍스트를 오프셋으로 훑고 저쪽은 줄 단위로 보아
-# 매칭 단위가 다르다. 공유되는 것은 처방이지 코드가 아니다.
-_MARK_START_RE = re.compile(r"^[ \t]*" + re.escape(MARK_START), re.MULTILINE)
-_MARK_END_RE = re.compile(r"^[ \t]*" + re.escape(MARK_END), re.MULTILINE)
+# `_AUTOGEN_START`/`_AUTOGEN_END` 주석이 정본이다. 컴파일은
+# `marker_splice.compile_markers`(공유) — check_doc_form.py는 전체 텍스트가
+# 아니라 줄 단위로 보아 매칭 단위가 달라 그쪽 정규식은 따로 둔다.
+_MARK_START_RE, _MARK_END_RE = compile_markers(MARK_START, MARK_END)
 
 _HEAD_LINES = 25  # 각 파일의 앞부분에서만 BLUF를 찾는다.
 
@@ -110,15 +114,6 @@ DUPLICATE_MARKERS = 3
 WRITE_FAILURE = 4
 
 
-
-def _write_lf(path: Path, content: str) -> None:
-    """줄바꿈을 LF로 고정해 쓴다 — 생성물이 플랫폼마다 달라지면 안 된다.
-
-    `Path.write_text`의 `newline` 인자는 3.10부터라 선언 하한(3.9)에서
-    TypeError를 낸다. `open`의 같은 인자는 오래전부터 있어 그것을 쓴다.
-    """
-    with path.open("w", encoding="utf-8", newline="\n") as fh:
-        fh.write(content)
 
 def read_head(path: Path) -> list[str]:
     try:
@@ -181,27 +176,20 @@ def _read_readme(readme: Path) -> str | None:
 
 
 def _write_readme_atomically(readme: Path, content: str) -> None:
-    """같은 폴더 임시 파일에 쓴 뒤 제자리 교체한다 — 대상은 늘 옛 내용이거나 새
-    내용이고, 잘린 중간 상태가 될 수 없다.
+    """같은 폴더 임시 파일에 쓴 뒤 제자리 교체한다(공유 구현은
+    `marker_splice.write_atomically`) — 대상은 늘 옛 내용이거나 새 내용이고,
+    잘린 중간 상태가 될 수 없다.
 
-    `write_text`는 원자적이지 않다. 열기는 성공했는데 디스크가 차거나 I/O가
-    끊기면 그 파일이 반쪽으로 남는다 — 이 도구가 못박은 "반쪽 실행이 제일
-    나쁘다"를 정작 파일 하나 안에서 어기는 자리였다. 임시 파일을 **같은 폴더**에
-    두는 것이 핵심이다(다른 파일시스템이면 교체가 원자적이지 않다).
-
-    실패하면 임시 파일을 치우고 예외를 그대로 올린다 — 대상은 손대지 않은 채다.
+    `write=_write_lf`를 **이름으로** 넘긴다(모듈 전역 참조) — 테스트가
+    `gen_readmes._write_lf`를 monkeypatch해 쓰기 실패를 흉내내므로, 호출
+    시점에 이 이름을 다시 조회해야 그 대역이 실제로 걸린다.
     """
-    tmp = readme.with_name(f".{readme.name}.tmp")
-    try:
-        _write_lf(tmp, content)
-        os.replace(tmp, readme)
-    except OSError:
-        tmp.unlink(missing_ok=True)
-        raise
+    _write_atomically(readme, content, write=_write_lf)
 
 
 def marker_occurrences(content: str) -> tuple[int, int]:
-    """START·END 마커가 줄 시작 앵커 기준으로 각각 몇 번 나타나는지.
+    """START·END 마커가 줄 시작 앵커 기준으로 각각 몇 번 나타나는지(공유
+    구현은 `marker_splice.marker_occurrences`).
 
     정상은 (0, 0)이거나 (1, 1)뿐이다 — 블록이 없거나, 온전한 한 쌍이거나.
     나머지는 사람이 봐야 할 상태다. 쌍이 여럿이면(병합 사고 등) 첫 쌍만 갱신되고
@@ -209,10 +197,7 @@ def marker_occurrences(content: str) -> tuple[int, int]:
     덧붙는다. 짝이 안 맞는 경우는 실제로 생긴다 — 마커를 인용부호로 감싸면
     START는 줄 시작 앵커에 안 걸리고 END만 걸린다.
     """
-    return (
-        sum(1 for _ in _MARK_START_RE.finditer(content)),
-        sum(1 for _ in _MARK_END_RE.finditer(content)),
-    )
+    return _marker_occurrences(content, _MARK_START_RE, _MARK_END_RE)
 
 
 def readme_own_bluf(folder: Path) -> str | None:
@@ -443,14 +428,14 @@ def handwritten_in_block(old_content: str) -> list[str]:
     블록은 교체 대상이라 여기 있는 줄은 재생성 때 사라진다. 생성물은 형식이
     고정(`- \\`이름\\` — 설명` / `### 제목` / 빈 줄)이므로, 그 형식을 벗어난 줄은
     사람·에이전트가 손으로 넣은 것이다. 지우기 전에 멈추라고 이 목록을 쓴다.
+
+    **형태로 추정한다** — README 인덱스는 폴더마다 내용이 달라 정답을 모르니
+    이 방법밖에 없다. 모든 저장소가 같은 정본을 받는 블록(예: 공용 안내)은
+    형태가 아니라 정확 일치로 재야 한다 — `gen_agents_common.py`가 그 갈래다.
     """
-    start_m = _MARK_START_RE.search(old_content)
-    if not start_m:
+    inner = _extract_block(old_content, _MARK_START_RE, _MARK_END_RE)
+    if inner is None:
         return []
-    end_m = _MARK_END_RE.search(old_content, start_m.end())
-    if not end_m:
-        return []
-    inner = old_content[start_m.end():end_m.start()]
     return [
         line for line in inner.split("\n")
         if line.strip()
@@ -460,7 +445,8 @@ def handwritten_in_block(old_content: str) -> list[str]:
 
 
 def compose_readme(folder: Path, index_block: str) -> str:
-    """기존 README의 수기 부분을 보존하며 인덱스 블록만 교체/삽입.
+    """기존 README의 수기 부분을 보존하며 인덱스 블록만 교체/삽입(공유 splice는
+    `marker_splice.splice`).
 
     비-UTF8 README는 `_read_readme`가 UnicodeDecodeError를 올린다 — 여기서
     삼키지 않고 호출측(main)에 전파해 쓰기 전에 건너뛰게 한다.
@@ -470,19 +456,10 @@ def compose_readme(folder: Path, index_block: str) -> str:
 
     content = _read_readme(readme)
     if content is not None:
-        start_m = _MARK_START_RE.search(content)
-        end_m = _MARK_END_RE.search(content, start_m.end()) if start_m else None
-        if start_m and end_m:
-            head = content[:start_m.start()].rstrip()
-            tail = content[end_m.end():].lstrip()
-            parts = [head, "", index_block.rstrip()]
-            if tail:
-                parts += ["", tail.rstrip()]
-            return "\n".join(parts).rstrip() + "\n"
-        # 마커 없는 기존 README: 전체를 보존하고 인덱스 블록을 뒤에 덧붙인다(비파괴).
-        return content.rstrip() + "\n\n" + index_block.rstrip() + "\n"
+        return _splice(content, index_block, _MARK_START_RE, _MARK_END_RE)
 
-    # 신규 README: 폴더 목적 BLUF 자리(TODO)를 둔다.
+    # 신규 README: 폴더 목적 BLUF 자리(TODO)를 둔다 — 공유 splice는 "파일이
+    # 이미 있다"만 다루므로, 새 파일의 머리말은 이 모듈이 직접 짓는다.
     header = f"> **BLUF:** {TODO_PREFIX} — `{label}/` 폴더 목적을 한 줄로 채우세요."
     return header + "\n\n" + index_block.rstrip() + "\n"
 
