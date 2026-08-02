@@ -92,9 +92,8 @@
 
 ## 관련
 
-- [기각 사례 — 손글씨를 재생산으로 가르려던 시도](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-classify-handwritten-by-reproducibility.md)
-- 코드 게이트 결함 실측 둘: [자동생성 마커 부분매치](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-autogen-marker-substring-match-hides-violations.md) · [내부용어 목록 게이트 — 제1조·제2조 근거](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-jargon-list-gate-chases-an-open-set.md).
-- 이월조항이 무엇을 보호하는지는 `check_pr_body`의 셸 명령 파싱 주석이 보여준다.
-  그 주석은 근본 해결이 불가능함을 스스로 적어 두었다 — 이 조를 근거로 걷어낼
-  대상이 아니라, 한계를 밝혀 둔 채로 두는 대상이다.
-- 이 조문은 여러 저장소가 함께 쓰므로 근거도 절대 주소로 가리킨다.
+- 원 저장소 history: `B-classify-handwritten-by-reproducibility` ·
+  `B-autogen-marker-substring-match-hides-violations` ·
+  `B-jargon-list-gate-chases-an-open-set`(제1조·제2조 근거).
+- 이월조항이 보호하는 것은 `check_pr_body`의 셸 명령 파싱 주석이 제시한다.
+  근본 해결이 불가능하다고 스스로 기록해 두었으므로 제거 대상이 아니다.
