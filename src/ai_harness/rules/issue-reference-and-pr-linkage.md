@@ -43,5 +43,12 @@ PR이 그 이슈를 완결시키면 본문에 `Closes #N`을 써야 한다.
 
 - [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
   제1조 — 완결 여부가 사람만 아는 것에 속해 기계 게이트를 두지 않는 근거.
-- [제정 근거가 된 실측 기록](https://github.com/pollux-o4-labs/ai-harness/blob/main/docs/history/B-refs-keyword-does-not-close-issue.md)
-  — 여러 저장소가 함께 쓰는 조문이라 근거도 절대 주소로 가리킨다.
+- `B-refs-keyword-does-not-close-issue` — 제정 근거가 된 실측 기록.
+  원 저장소 history에 있다.
+
+원 저장소 기록은 링크로 걸지 않고 이름만 적는다.
+이 조문은 다른 저장소에 설치되어 읽히는데, 상대 경로는 거기서 깨지고 절대 주소는
+원 저장소가 비공개라 열리지 않는다.
+이름은 양쪽에서 통한다 — 원 저장소 사람은 그 이름으로 찾고, 설치본 독자는 닿지
+못할 링크를 좇지 않는다.
+같은 폴더에 함께 설치되는 조문끼리는 상대 링크가 유효하므로 그대로 건다.
