@@ -43,6 +43,5 @@
 
 - [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
   제1조 — 뜻을 재는 검사를 만들지 않는 근거.
-- `B-shared-line-cap-150-breaks-agents-form` — 이 신호와 짝을 이루는 줄 수
-  2단계 판정에서 기각한 대안.
-  원 저장소 history에 있다.
+- 원 저장소 history: `B-shared-line-cap-150-breaks-agents-form` — 줄 수 2단계
+  판정에서 기각한 대안.

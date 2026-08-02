@@ -92,7 +92,6 @@
 
 ## 관련
 
-- [이슈 참조와 PR 연결](issue-reference-and-pr-linkage.md) — 링크 부재의 근거.
 - 원 저장소 history: `B-classify-handwritten-by-reproducibility` ·
   `B-autogen-marker-substring-match-hides-violations` ·
   `B-jargon-list-gate-chases-an-open-set`(제1조·제2조 근거).
