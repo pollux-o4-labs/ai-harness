@@ -92,15 +92,9 @@
 
 ## 관련
 
-아래 기록은 원 저장소 history에 있다 — 링크를 걸지 않는 근거는
-[이슈 참조와 PR 연결](issue-reference-and-pr-linkage.md)이 밝힌다.
-
-- `B-classify-handwritten-by-reproducibility` — 손글씨를 재생산 가능성으로
-  가르려던 기각 사례.
-- `B-autogen-marker-substring-match-hides-violations` — 자동생성 마커
-  부분매치로 위반이 가려진 실측.
-- `B-jargon-list-gate-chases-an-open-set` — 내부용어 목록 게이트가 열린 집합을
-  좇은 실측(제1조·제2조 근거).
-- 이월조항이 무엇을 보호하는지는 `check_pr_body`의 셸 명령 파싱 주석이 보여준다.
-  그 주석은 근본 해결이 불가능함을 스스로 적어 두었다 — 이 조를 근거로 걷어낼
-  대상이 아니라, 한계를 밝혀 둔 채로 두는 대상이다.
+- [이슈 참조와 PR 연결](issue-reference-and-pr-linkage.md) — 링크 부재의 근거.
+- 원 저장소 history: `B-classify-handwritten-by-reproducibility` ·
+  `B-autogen-marker-substring-match-hides-violations` ·
+  `B-jargon-list-gate-chases-an-open-set`(제1조·제2조 근거).
+- 이월조항이 보호하는 것은 `check_pr_body`의 셸 명령 파싱 주석이 제시한다.
+  근본 해결이 불가능하다고 스스로 기록해 두었으므로 제거 대상이 아니다.
