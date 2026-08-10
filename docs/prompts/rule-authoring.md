@@ -46,6 +46,10 @@
 - 규칙 11 파괴적 작업 전 백업과 전역 부작용 검증 (backup-before-destructive.md)
 - 규칙 12 규약은 가장 좁은 자리에 둔다 (context-scope-narrowest.md)
 - 규칙 13 반복된 구두 지시는 구조 결함 신호다 (repetition-is-a-structural-signal.md)
+- 규칙 14 조직과 절차는 조사한 뒤 제안한다 (research-before-proposing.md)
+- 규칙 15 되돌리기 비용으로 상신 여부를 가른다 (escalate-by-reversal-cost.md)
+- 규칙 16 경로 참조는 영구 저장 여부에 맞춘다 (path-reference-by-audience.md)
+- 규칙 17 절차를 성급히 스킬로 굳히지 않는다 (no-premature-skill-extraction.md)
 
 ## 강제 수단 절
 기계 게이트가 실제로 있는지 네가 판단하고 정직하게 적어라.
