@@ -55,16 +55,20 @@ def install_rules(user: bool = False) -> int:
         return 0
 
     # 폴더 개요 README는 조문이 아니라 이 패키지 안에서만 쓰는 색인이라 제외한다.
-    rules = [p for p in sorted(_RULES_SRC.glob("*.md")) if p.name != "README.md"]
+    # rglob: 조문을 작업 시점별 토픽 폴더로 묶어도 배포되게 한다.
+    rules = [p for p in sorted(_RULES_SRC.rglob("*.md")) if p.name != "README.md"]
     if not rules:
         print(f"[install_rules] 동봉 조문 0건({_RULES_SRC}) — 설치할 것 없음.")
         return 0
 
     dst_dir.mkdir(parents=True, exist_ok=True)
     for src in rules:
-        dst = dst_dir / src.name
+        # 하위 폴더 구조를 설치본에도 그대로 옮긴다. 평면화하면 동명 파일이 서로를 덮는다.
+        rel = src.relative_to(_RULES_SRC)
+        dst = dst_dir / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dst)
-        print(f"[install_rules] + {src.name} → {dst}")
+        print(f"[install_rules] + {rel} → {dst}")
 
     print(f"[install_rules] 완료 — {len(rules)}개 설치(덮어쓰기). "
           f"저장소 AGENTS.md에 이 폴더를 가리키는 줄을 두어라.")
