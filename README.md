@@ -65,6 +65,6 @@ uv run ruff check   # 린트만 따로(dev 전용, 게이트 아님)
 - `tests/` — 게이트 자기검증 테스트 — 무DB·무LLM·stdlib, pytest로 룰을 실측한다.
 
 ### 문서
-- `TODO.md` — 조문 증가에 따른 지시 준수율 저하를 게이트 상향과 좌석 하향으로 해소한다.
+- `TODO.md` — 지시 준수율 저하를 게이트 상향과 외부 검증 배선으로 해소한다.
 
 <!-- BLUF-INDEX:END -->
