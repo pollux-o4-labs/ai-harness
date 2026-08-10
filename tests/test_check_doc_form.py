@@ -1376,3 +1376,42 @@ def test_quote_block_after_blank_line_not_flagged_as_folded_bluf(real_forms):
         "> **BLUF:** 한 줄로 끝낸다.\n\n## B (하지 말 것)\n\n> 인용이다.\n",
     )
     assert cdf.check_file(doc) == []
+
+
+# --- 절 구성 검사 ------------------------------------------------------------
+# 폼이 선언한 유한 집합 밖의 절만 반려한다. 누락은 보지 않는다(리뷰어 몫).
+
+def test_section_check_rejects_undeclared_section(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    doc = _write_doc("docs/rules/x.md", "# t\n\n## 규칙\n\n## 부록\n")
+    v = cdf.check_file(doc)
+    assert any("폼에 없는 절" in x and "부록" in x for x in v), v
+
+
+def test_section_check_allows_declared_optional_section(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    doc = _write_doc(
+        "docs/rules/x.md",
+        "# t\n\n## 왜 필요한가\n\n## 규칙\n\n## 강제 수단 (정직 표기)\n\n## 관련\n",
+    )
+    assert not [x for x in cdf.check_file(doc) if "절" in x]
+
+
+def test_section_check_ignores_missing_required(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    """누락은 반려하지 않는다 — 초안·부분 문서를 막지 않기 위해서다."""
+    doc = _write_doc("docs/rules/x.md", "# t\n\n## 규칙\n")
+    assert not [x for x in cdf.check_file(doc) if "절" in x]
+
+
+def test_section_check_skips_types_without_declaration(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    """폼이 절을 선언하지 않은 유형은 무영향 — 전역 폴백을 쓰지 않는다."""
+    doc = _write_doc("docs/history/B-x.md", "# t\n\n## 아무 절\n")
+    assert not [x for x in cdf.check_file(doc) if "폼에 없는 절" in x]
+
+
+def test_section_check_ignores_headings_inside_code_fence(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    doc = _write_doc("docs/rules/x.md", "# t\n\n## 규칙\n\n```\n## 코드 안\n```\n")
+    assert not [x for x in cdf.check_file(doc) if "폼에 없는 절" in x]

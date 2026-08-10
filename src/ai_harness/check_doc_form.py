@@ -293,6 +293,83 @@ def load_budgets(form_name: str) -> dict[str, int]:
     return extract_budgets(text, _BUDGET_PATS)
 
 
+# 절 구성 선언 — 폼이 이 두 줄을 적으면 그 유형의 절 이름 집합이 유한해진다.
+# 가운뎃점으로 나눈다(쉼표는 절 이름 안에 들어갈 수 있다).
+_SECTION_PATS = {
+    "required": re.compile(r"^필수 절: *(.+)$", re.MULTILINE),
+    "optional": re.compile(r"^선택 절: *(.+)$", re.MULTILINE),
+}
+
+
+def load_sections(form_name: str) -> tuple[list[str], list[str]] | None:
+    """폼이 선언한 (필수 절, 선택 절). 선언이 없으면 None.
+
+    **전역 폴백을 쓰지 않는다** — 줄 예산은 전 유형 공통 위생이지만 절 구성은
+    유형마다 다르다. 폴백을 걸면 폼 없는 유형이 rules 골격으로 리젝된다.
+    """
+    path = FORM_DIR / f"{form_name}.md"
+    if not path.is_file():
+        return None
+    text = path.read_text(encoding="utf-8")
+    found = {}
+    for key, pat in _SECTION_PATS.items():
+        m = pat.search(text)
+        found[key] = [s.strip() for s in m.group(1).split("·") if s.strip()] if m else []
+    if not found["required"] and not found["optional"]:
+        return None
+    return found["required"], found["optional"]
+
+
+def _top_level_headings(lines: list[str]) -> list[tuple[int, str]]:
+    """코드펜스 밖의 `## ` 헤딩을 (1-기반 줄번호, 제목)으로 낸다.
+
+    `###` 이하는 조문 번호라 유한 집합이 아니다 — 세지 않는다.
+    """
+    out: list[tuple[int, str]] = []
+    in_fence = False
+    for i, line in enumerate(lines, start=1):
+        if line.lstrip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if line.startswith("## "):
+            out.append((i, line[3:].strip()))
+    return out
+
+
+def check_sections(path: Path, lines: list[str], kind: str | None) -> list[str]:
+    """절 이름을 폼이 선언한 유한 집합과 대조한다.
+
+    유한하고 구조로 답이 나오는 축만 본다 — 절 **안에 무엇을 썼는가**는
+    무한이라 게이트가 판정하지 않는다(그 축은 리뷰어 좌석 몫이다).
+    """
+    if not kind:
+        return []
+    # 폴더 색인 README는 gen_readmes가 골격을 소유한다 — 유형 폼의 절 구성과 무관하다.
+    if path.name == "README.md":
+        return []
+    declared = load_sections(kind)
+    if declared is None:
+        return []
+    required, optional = declared
+    allowed = set(required) | set(optional)
+    seen = _top_level_headings(lines)
+    violations: list[str] = []
+    for lineno, title in seen:
+        if title not in allowed:
+            violations.append(
+                f"{path}:{lineno}: 폼에 없는 절 `## {title}` — "
+                f"허용 절은 {' · '.join(required + optional)} 이다. "
+                f"새 절이 필요하면 폼(docs_format/{kind}.md)을 먼저 고쳐라."
+            )
+    # **누락은 안 본다(정직 표기).** 반증 실험에서 이 축은 초안·부분 문서까지
+    # 전부 반려해 정상 작업을 막았다 — 규칙 01 제4조가 기각하라고 한 형태다.
+    # 실측된 드리프트는 누락이 아니라 폼에 없는 절의 발생이었다.
+    # "골격을 다 갖췄는가"는 리뷰어 판정으로 남긴다.
+    return violations
+
+
 def doc_type(path: Path) -> str | None:
     """경로에서 유형을 판정한다. docs/<유형>/foo.md → <유형>."""
     parts = path.parts
@@ -594,8 +671,9 @@ def _check_content(path: Path, text: str) -> tuple[list[str], list[str]]:
         _load_form_budgets(path, kind)
     )
 
-    # 금지 참조는 예산과 무관한 축이라 예산 판정 전에 모은다.
+    # 금지 참조·절 구성은 예산과 무관한 축이라 예산 판정 전에 모은다.
     violations: list[str] = check_forbidden_refs(path, lines)
+    violations += check_sections(path, lines, kind)
     warnings: list[str] = []
 
     if fail_closed_reason is not None:
