@@ -24,9 +24,9 @@
 
 ### 제3조 (기존 규칙과의 구분)
 
-본 규칙을 [규칙 13](repetition-is-a-structural-signal.md)의 개선 조치와 혼동해서는 아니 된다.
+본 규칙을 [규칙 13](../work-cycle/repetition-is-a-structural-signal.md)의 개선 조치와 혼동해서는 아니 된다.
 
-[규칙 13](repetition-is-a-structural-signal.md)은 정본 문서 작성을 지시하며 스킬 추출을 지시하지 않는다.
+[규칙 13](../work-cycle/repetition-is-a-structural-signal.md)은 정본 문서 작성을 지시하며 스킬 추출을 지시하지 않는다.
 
 ## 강제 수단 (정직 표기)
 
@@ -36,5 +36,5 @@
 
 ## 관련
 
-- [규칙 13](repetition-is-a-structural-signal.md) — 반복된 구두 지시는 구조 결함 신호다
+- [규칙 13](../work-cycle/repetition-is-a-structural-signal.md) — 반복된 구두 지시는 구조 결함 신호다
 - 이 저장소 안의 실측 근거는 아직 없다.

@@ -41,6 +41,6 @@ PR이 그 이슈를 완결시키면 본문에 `Closes #N`을 써야 한다.
 
 ## 관련
 
-- [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
+- [게이트는 볼 수 있는 것만 판정한다](../gate-design/gates-judge-only-what-they-can-see.md)
   제1조 — 완결 여부가 사람만 아는 것에 속해 기계 게이트를 두지 않는 근거.
 - 원 저장소 history: `B-refs-keyword-does-not-close-issue` — 제정 근거가 된 실측.

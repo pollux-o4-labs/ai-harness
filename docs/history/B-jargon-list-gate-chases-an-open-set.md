@@ -38,5 +38,5 @@
 미승격.
 
 판정 근거는
-[규칙 01](../../src/ai_harness/rules/gates-judge-only-what-they-can-see.md)
+[규칙 01](../../src/ai_harness/rules/gate-design/gates-judge-only-what-they-can-see.md)
 제1조와 제2조다.

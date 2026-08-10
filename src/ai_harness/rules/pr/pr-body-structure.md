@@ -40,7 +40,7 @@ PR 본문은 템플릿의 필수 섹션을 모두 갖춰야 한다.
 
 PR 본문은 이 저장소를 모르는 제3자가 한 번에 읽을 수 있어야 한다.
 
-내부 용어 풀이는 [한 글에 한 어휘 층위](one-register-per-document.md) 제3조를
+내부 용어 풀이는 [한 글에 한 어휘 층위](../authoring/one-register-per-document.md) 제3조를
 따른다.
 
 PR 본문에서 추가되는 것은 이 요구가 확인 절의 자기신고 항목으로 함께 걸린다는
@@ -76,4 +76,4 @@ PR 본문은 확인 절에 체크리스트를 갖춰야 한다.
 
 - [체크 전에 근거를 남긴다](review-evidence-before-checking.md) — 체크리스트를
   채우는 절차와 근거 기록.
-- [한 글에 한 어휘 층위](one-register-per-document.md) — PR 본문도 저장소에 남는 글이다.
+- [한 글에 한 어휘 층위](../authoring/one-register-per-document.md) — PR 본문도 저장소에 남는 글이다.

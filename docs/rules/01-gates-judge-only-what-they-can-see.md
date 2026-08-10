@@ -6,4 +6,4 @@
 
 이 규칙은 여러 저장소가 함께 쓰므로 조문을 여기 두지 않는다.
 
-- [조문 전문](../../src/ai_harness/rules/gates-judge-only-what-they-can-see.md)
+- [조문 전문](../../src/ai_harness/rules/gate-design/gates-judge-only-what-they-can-see.md)

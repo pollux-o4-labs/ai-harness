@@ -39,5 +39,5 @@
 
 미승격.
 
-판정 근거는 [규칙 06](../../src/ai_harness/rules/doc-authoring-norms.md)
+판정 근거는 [규칙 06](../../src/ai_harness/rules/authoring/doc-authoring-norms.md)
 제2조(규범 정본 단일화)와 이 기록의 실측 표다.

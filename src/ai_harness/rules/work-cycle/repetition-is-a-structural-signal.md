@@ -40,7 +40,7 @@
 
 ## 관련
 
-- [규칙 01](gates-judge-only-what-they-can-see.md) — 게이트는 볼 수 있는 것만 판정한다
-- [규칙 12](context-scope-narrowest.md) — 규약은 가장 좁은 자리에 둔다
+- [규칙 01](../gate-design/gates-judge-only-what-they-can-see.md) — 게이트는 볼 수 있는 것만 판정한다
+- [규칙 12](../authoring/context-scope-narrowest.md) — 규약은 가장 좁은 자리에 둔다
 - 임계 3회는 업계 통칭 "Three Strikes and You Automate" 와 rule of three 를 따랐다.
   - 이 저장소 안의 실측 근거는 아직 없다.

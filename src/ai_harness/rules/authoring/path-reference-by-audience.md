@@ -44,6 +44,6 @@
 
 ## 관련
 
-- [규칙 01](gates-judge-only-what-they-can-see.md) — 게이트는 볼 수 있는 것만 판정한다
+- [규칙 01](../gate-design/gates-judge-only-what-they-can-see.md) — 게이트는 볼 수 있는 것만 판정한다
 - [규칙 12](context-scope-narrowest.md) — 규약은 가장 좁은 자리에 둔다
-- [규칙 13](repetition-is-a-structural-signal.md) — 반복된 구두 지시는 구조 결함 신호다
+- [규칙 13](../work-cycle/repetition-is-a-structural-signal.md) — 반복된 구두 지시는 구조 결함 신호다

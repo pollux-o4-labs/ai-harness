@@ -73,7 +73,7 @@
 
 ## 관련
 
-- [체크 전에 근거를 남긴다](review-evidence-before-checking.md) — 적대검증
+- [체크 전에 근거를 남긴다](../pr/review-evidence-before-checking.md) — 적대검증
   결과를 남기는 형식.
-- [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
+- [게이트는 볼 수 있는 것만 판정한다](../gate-design/gates-judge-only-what-they-can-see.md)
   제3조 — 기계가 못 재는 축을 리뷰어에게 위임하는 근거.

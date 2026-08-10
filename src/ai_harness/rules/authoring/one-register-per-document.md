@@ -63,6 +63,6 @@
 
 ## 관련
 
-- [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
+- [게이트는 볼 수 있는 것만 판정한다](../gate-design/gates-judge-only-what-they-can-see.md)
   제1조 — 어휘가 무한 집합이라 목록 검사가 금지되는 근거.
 - 동봉 좌석 `agents/reviewer-style.md` — 이 조문의 판정 주체.

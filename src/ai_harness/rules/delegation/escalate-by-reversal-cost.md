@@ -38,5 +38,5 @@
 
 ## 관련
 
-- [규칙 11](backup-before-destructive.md) — 파괴적 작업 전 백업과 전역 부작용 검증.
+- [규칙 11](../destructive/backup-before-destructive.md) — 파괴적 작업 전 백업과 전역 부작용 검증.
 - 이 저장소 안의 실측 근거는 아직 없다.

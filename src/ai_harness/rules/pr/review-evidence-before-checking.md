@@ -87,6 +87,6 @@
 
 ## 관련
 
-- [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
+- [게이트는 볼 수 있는 것만 판정한다](../gate-design/gates-judge-only-what-they-can-see.md)
   제2조 — 형식과 진실성을 가르는 근거.
-- [한 글에 한 어휘 층위](one-register-per-document.md) — 코멘트도 저장소에 남는 글이다.
+- [한 글에 한 어휘 층위](../authoring/one-register-per-document.md) — 코멘트도 저장소에 남는 글이다.

@@ -57,6 +57,6 @@
 미승격.
 
 판정 근거는
-[규칙 01](../../src/ai_harness/rules/gates-judge-only-what-they-can-see.md)
+[규칙 01](../../src/ai_harness/rules/gate-design/gates-judge-only-what-they-can-see.md)
 제1조다 — 설치본과 소스의 값 대조는 세면 답이 나오는 유한 대상이라 게이트로
 만들어도 되는 쪽에 든다.

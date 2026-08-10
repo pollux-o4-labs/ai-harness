@@ -30,7 +30,7 @@
 - 브랜치를 파고 PR로 올린다.
 - PR 본문·리뷰 코멘트는 게이트를 통과해야 한다(형식은 게이트가 알려준다).
 - 이슈 생성·PR 연결은
-  [공용 규칙](src/ai_harness/rules/issue-reference-and-pr-linkage.md)을 따른다.
+  [공용 규칙](src/ai_harness/rules/pr/issue-reference-and-pr-linkage.md)을 따른다.
 - 그 규칙대로 이슈를 만들기 전에 umbrella 여부를 제안한다.
 - 문서를 고쳤으면 `ai-harness gen-readmes`로 인덱스를 갱신해 같이 커밋한다.
 - 게이트 상수를 고쳤으면 `ai-harness gen-pr-template`로 템플릿도 다시 만든다.

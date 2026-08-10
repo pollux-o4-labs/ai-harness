@@ -30,7 +30,7 @@
 
 적대검증 리뷰어는 비평과 판정만 하며 파일 수정·커밋을 해서는 아니 된다.
 
-다만, [한 글에 한 어휘 층위](one-register-per-document.md) 제4조가 지정한 문체
+다만, [한 글에 한 어휘 층위](../authoring/one-register-per-document.md) 제4조가 지정한 문체
 좌석의 직접 교정은 이 금지의 예외다.
 
 ### 제3조 (감독과 구현의 분리)
@@ -51,7 +51,7 @@
 
 ## 관련
 
-- [규모별 작업 사이클](work-cycle-by-size.md) 제3조·제4조 — 이 상한이 적용되는
+- [규모별 작업 사이클](../work-cycle/work-cycle-by-size.md) 제3조·제4조 — 이 상한이 적용되는
   리뷰어 소집 지점.
-- [체크 전에 근거를 남긴다](review-evidence-before-checking.md) 제2조 — 리뷰어가
+- [체크 전에 근거를 남긴다](../pr/review-evidence-before-checking.md) 제2조 — 리뷰어가
   직접 게시하지 않는 근거.

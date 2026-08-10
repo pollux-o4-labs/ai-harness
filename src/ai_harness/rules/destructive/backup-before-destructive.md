@@ -61,7 +61,7 @@
 
 ## 관련
 
-- [게이트는 볼 수 있는 것만 판정한다](gates-judge-only-what-they-can-see.md)
+- [게이트는 볼 수 있는 것만 판정한다](../gate-design/gates-judge-only-what-they-can-see.md)
   제5조 — 유한한 안전 전제를 코드로 고정하는 의무.
-- [검사 기법 선택](test-technique-selection.md) 제6조 — 제4조 시험이 왜 지금
+- [검사 기법 선택](../gate-design/test-technique-selection.md) 제6조 — 제4조 시험이 왜 지금
   통과하는지 분류하는 형식.

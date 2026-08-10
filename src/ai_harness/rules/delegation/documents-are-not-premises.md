@@ -38,8 +38,8 @@
 
 ## 관련
 
-- [규칙 03](review-evidence-before-checking.md) — 체크 전에 근거를 남긴다
-- [규칙 13](repetition-is-a-structural-signal.md) — 반복된 구두 지시는 구조 결함 신호다
+- [규칙 03](../pr/review-evidence-before-checking.md) — 체크 전에 근거를 남긴다
+- [규칙 13](../work-cycle/repetition-is-a-structural-signal.md) — 반복된 구두 지시는 구조 결함 신호다
 - [규칙 15](escalate-by-reversal-cost.md) — 되돌리기 비용으로 상신 여부를 가른다
 - 2026-08-10 실측 — 위임 도구 실측이 미통제 변수로 18회 교란되었으나
   등재 항목이라는 이유로 재검토되지 않다가 오너 지적으로 밝혀짐.

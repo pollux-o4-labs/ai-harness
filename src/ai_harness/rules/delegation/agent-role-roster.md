@@ -57,7 +57,7 @@ PR을 머지한 경우 감독은 그 작업 공간과 브랜치를 함께 정리
 
 팀원은 자기 lead에게 보고해야 하며, lead가 없으면 감독에게 직접 보고한다.
 
-중계의 검증 의무는 [체크 전에 근거를 남긴다](review-evidence-before-checking.md)
+중계의 검증 의무는 [체크 전에 근거를 남긴다](../pr/review-evidence-before-checking.md)
 제2조를 따른다.
 
 자신이 검증한 사항과 타인의 미검증 주장은 구분해 표기해야 한다.
@@ -93,5 +93,5 @@ lead를 둔 경우 리뷰어 소집은 lead가 해야 한다.
 ## 관련
 
 - [에이전트 재사용 상한](agent-reuse-cap.md) — 제5조가 준용하는 상한.
-- [체크 전에 근거를 남긴다](review-evidence-before-checking.md) 제2조 — 리뷰어의
+- [체크 전에 근거를 남긴다](../pr/review-evidence-before-checking.md) 제2조 — 리뷰어의
   게시 금지 범위.

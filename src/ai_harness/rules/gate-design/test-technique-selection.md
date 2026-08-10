@@ -87,6 +87,6 @@
 
 ## 관련
 
-- [규모별 작업 사이클](work-cycle-by-size.md) — 이 규칙이 그 안의 시험 몫을 정한다.
-- [체크 전에 근거를 남긴다](review-evidence-before-checking.md) — 제2조의 결정
+- [규모별 작업 사이클](../work-cycle/work-cycle-by-size.md) — 이 규칙이 그 안의 시험 몫을 정한다.
+- [체크 전에 근거를 남긴다](../pr/review-evidence-before-checking.md) — 제2조의 결정
   테이블이 그 근거가 된다.
