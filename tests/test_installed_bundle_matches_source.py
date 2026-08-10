@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -44,8 +45,12 @@ def _installed_package_dir() -> Path | None:
     if shutil.which("uv") is None:
         return None
     try:
+        # NO_COLOR: uv가 경로를 ANSI 색 시퀀스로 감싸 내보내면 Path가 그 시퀀스까지
+        # 경로로 받아 존재하지 않는 디렉터리가 되고, 대조가 조용히 건너뛰어진다
+        # (2026-08-10 실측 — 이 테스트가 그렇게 계속 skip 되고 있었다).
         out = subprocess.run(
             ["uv", "tool", "dir"], capture_output=True, text=True, timeout=30,
+            env={**os.environ, "NO_COLOR": "1"},
         )
     except (OSError, subprocess.SubprocessError):
         return None
@@ -73,8 +78,11 @@ def test_installed_bundle_matches_source() -> None:
         src_dir, dst_dir = _SRC / sub, installed / sub
         if not src_dir.is_dir():
             continue
-        src_files = {p.name: p for p in src_dir.iterdir() if p.is_file()}
-        dst_files = {p.name: p for p in dst_dir.iterdir() if p.is_file()} if dst_dir.is_dir() else {}
+        # rglob: 조문이 토픽 폴더로 묶인 뒤 iterdir 로는 하위 폴더가 대조에서 빠진다.
+        rel = lambda base, q: q.relative_to(base).as_posix()  # noqa: E731
+        src_files = {rel(src_dir, q): q for q in src_dir.rglob("*") if q.is_file()}
+        dst_files = ({rel(dst_dir, q): q for q in dst_dir.rglob("*") if q.is_file()}
+                     if dst_dir.is_dir() else {})
         for name in sorted(set(src_files) | set(dst_files)):
             if name not in dst_files:
                 stale.append(f"{sub}/{name}: 설치본에 없다")
@@ -104,7 +112,10 @@ def test_detector_actually_finds_the_global_install() -> None:
     가상환경을 editable로 깔아 소스 자신이 잡혔고, 테스트가 조용히 건너뛰며
     통과했다. 설치본이 있는 환경에서 그 상태를 실패로 드러낸다.
     """
-    tools = subprocess.run(["uv", "tool", "dir"], capture_output=True, text=True, timeout=30)
+    tools = subprocess.run(
+        ["uv", "tool", "dir"], capture_output=True, text=True, timeout=30,
+        env={**os.environ, "NO_COLOR": "1"},
+    )
     if tools.returncode != 0:
         pytest.skip("uv tool dir 실패 — 이 환경엔 전역 설치가 없다.")
     if not (Path(tools.stdout.strip()) / "ai-harness").is_dir():

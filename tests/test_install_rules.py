@@ -17,8 +17,13 @@ def _init_repo(repo: Path) -> None:
 
 
 def _bundled_names() -> list[str]:
-    # 폴더 인덱스 README.md는 조문이 아니라 이 패키지 안 색인이다 — 기대치도 맞춘다.
-    return sorted(p.name for p in _BUNDLED.glob("*.md") if p.name != "README.md")
+    # 최상위 README.md는 이 패키지 자신을 설명하는 색인이라 배포 대상이 아니다.
+    # 토픽 폴더의 README는 라우팅이라 함께 배포된다 — 기대치도 그렇게 잡는다.
+    return sorted(
+        p.relative_to(_BUNDLED).as_posix()
+        for p in _BUNDLED.rglob("*.md")
+        if p != _BUNDLED / "README.md"
+    )
 
 
 def test_installs_rules_into_target(tmp_path, monkeypatch):
@@ -28,8 +33,8 @@ def test_installs_rules_into_target(tmp_path, monkeypatch):
     names = _bundled_names()
     assert ir.install_rules() == len(names)
     dst = repo / ".claude" / "rules"
-    assert sorted(p.name for p in dst.glob("*.md")) == names
-    assert not (dst / "README.md").exists()  # 폴더 인덱스는 조문 아님 → 미설치
+    assert sorted(p.relative_to(dst).as_posix() for p in dst.rglob("*.md")) == names
+    assert not (dst / "README.md").exists()  # 최상위 색인은 조문 아님 → 미설치
     for name in names:
         assert (dst / name).read_text(encoding="utf-8") == (
             _BUNDLED / name).read_text(encoding="utf-8")
@@ -46,6 +51,7 @@ def test_overwrites_existing_copy(tmp_path, monkeypatch):
     dst.mkdir(parents=True)
     name = _bundled_names()[0]
     stale = dst / name
+    stale.parent.mkdir(parents=True, exist_ok=True)
     stale.write_text("옛 조문\n", encoding="utf-8")
     ir.install_rules()
     assert stale.read_text(encoding="utf-8") == (_BUNDLED / name).read_text(encoding="utf-8")

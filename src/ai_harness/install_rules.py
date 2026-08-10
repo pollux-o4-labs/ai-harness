@@ -54,9 +54,11 @@ def install_rules(user: bool = False) -> int:
         print(f"[install_rules] 동봉 공용 규칙 없음({_RULES_SRC}) — 설치할 것 없음.")
         return 0
 
-    # 폴더 개요 README는 조문이 아니라 이 패키지 안에서만 쓰는 색인이라 제외한다.
     # rglob: 조문을 작업 시점별 토픽 폴더로 묶어도 배포되게 한다.
-    rules = [p for p in sorted(_RULES_SRC.rglob("*.md")) if p.name != "README.md"]
+    # 토픽 폴더의 README는 함께 배포한다 — 어느 작업에 어느 폴더를 여는지가 거기 적혀
+    # 있어, 그것 없이는 소비 저장소에서 조문 19건이 다시 평면 목록으로 보인다.
+    # 최상위 README 만 제외한다. 그것은 이 패키지 자신을 설명하는 색인이다.
+    rules = [p for p in sorted(_RULES_SRC.rglob("*.md")) if p != _RULES_SRC / "README.md"]
     if not rules:
         print(f"[install_rules] 동봉 조문 0건({_RULES_SRC}) — 설치할 것 없음.")
         return 0
