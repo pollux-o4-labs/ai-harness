@@ -7,11 +7,15 @@
 - `backup-before-destructive.md` — 되돌릴 수 없는 작업 전에 백업하고, 그 작업이 대상 밖에 미친 영향까지 확인하는 사항.
 - `context-scope-narrowest.md` — 규약을 그것을 읽어야 할 좌석이 실제로 닿는 가장 좁은 자리에 두는 사항.
 - `doc-authoring-norms.md` — 문서를 저작할 때 지켜야 할 규범에 관한 사항.
+- `escalate-by-reversal-cost.md` — 의사결정의 자율 수행과 사람 상신 여부를 되돌리기 비용으로 가르는 사항.
 - `gates-judge-only-what-they-can-see.md` — 유한하고 객관적으로 답이 나오는 것만 검사로 만드는 사항.
 - `issue-reference-and-pr-linkage.md` — 이슈를 umbrella와 단일로 가르고 PR 종료 키워드를 가려 쓰는 사항.
+- `no-premature-skill-extraction.md` — 검증되지 않은 절차의 성급한 스킬 추출을 금지하는 규약.
 - `one-register-per-document.md` — 저장소에 남는 모든 글의 어휘 층위를 하나로 고정하는 사항.
+- `path-reference-by-audience.md` — 참조 경로는 읽는 주체가 사람인지 기계인지에 따라 서식을 구분한다.
 - `pr-body-structure.md` — PR 본문의 필수 섹션·분량 예산·용어 풀이·검수 자기신고에 관한 사항.
 - `repetition-is-a-structural-signal.md` — 구두 지시의 반복을 주의력 결여가 아닌 구조적 결함 신호로 다루는 규약.
+- `research-before-proposing.md` — 조직과 절차 제안 시 외부 사례 조사를 선행해야 하는 규약.
 - `review-evidence-before-checking.md` — 확인 체크리스트를 채우기 전에 남겨야 할 근거 기록의 주체·대상·형식에 관한 사항.
 - `test-technique-selection.md` — 어떤 검사 기법을 쓰고 무엇을 쓰지 않는지, 그 판정을 무엇으로 대신하는지에 관한 사항.
 - `topic-folders-when-scope-overlaps.md` — 평평하게 쌓인 디렉터리의 문서를 토픽 폴더로 묶고 README로 라우팅하는 사항.
