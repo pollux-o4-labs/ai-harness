@@ -237,6 +237,29 @@ def is_git_ignored(path: Path) -> bool:
     return result.returncode == 0
 
 
+def is_under_skipped_dir(d: Path, root: Path) -> bool:
+    """`d` 자신이나 루트까지의 조상 중 하나라도 순회 제외 대상이면 참.
+
+    `is_skipped_dir`는 폴더 **자신의 이름**만 본다. 루트부터 내려가는 순회에서는
+    `.claude`에서 이미 막히므로 그 아래를 볼 일이 없어 충분했다. 그러나
+    스테이징 경로는 조상을 거치지 않고 폴더를 직접 집합에 넣는다 — 그때
+    `.claude/rules`는 이름이 `rules`라 제외를 통과했다.
+
+    그 결과 소비 저장소가 **설치본 폴더의 요약문을 대신 쓰라는 요구**를 받았다
+    (2026-08-10 preview-skill 에서 실측). 그 폴더의 내용은 이 패키지가 소유하며
+    소비 저장소가 저작할 대상이 아니다.
+    """
+    cur = d
+    while True:
+        if cur == root:
+            return False
+        if is_skipped_dir(cur):
+            return True
+        if root not in cur.parents:
+            return False
+        cur = cur.parent
+
+
 def is_skipped_dir(d: Path) -> bool:
     """폴더를 순회·인덱스에서 건너뛸지 — 이름 규칙(시스템/사설) 또는 git-ignore(로컬 전용).
 
@@ -537,7 +560,10 @@ def staged_folders(root: Path) -> list[Path]:
     # 존재하고 순회 대상인 폴더만 검사한다(삭제된 폴더 자신은 빠져도 그 부모가
     # 집합에 있어, 부모 README 재생성이 사라진 하위폴더 항목을 제거한다). 루트는
     # 스테이징이 하나라도 있으면 항상 포함(모든 경로의 조상이라 이미 집합에 있다).
-    return sorted(d for d in dirs if d == root or (d.is_dir() and not is_skipped_dir(d)))
+    return sorted(
+        d for d in dirs
+        if d == root or (d.is_dir() and not is_under_skipped_dir(d, root))
+    )
 
 
 def _print_duplicate_markers_abort(

@@ -238,3 +238,25 @@ def test_staged_scope_still_rejects_drift_inside_staged_folder(tmp_path):
 
     rc = gen_readmes.main(["--root", str(tmp_path), "--check", "--staged"])
     assert rc == gen_readmes.DRIFT
+
+
+def test_staged_folders_skips_descendants_of_excluded_dirs(tmp_path):
+    """`.claude/rules` 처럼 제외 폴더의 **하위**도 대상에서 빠져야 한다.
+
+    회귀: 이름만 보던 시절 `.claude` 는 빠지고 `.claude/rules` 는 통과해,
+    소비 저장소가 설치본 폴더의 요약문을 대신 쓰라는 요구를 받았다.
+    """
+    import subprocess
+    root = tmp_path
+    subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True)
+    target = root / ".claude" / "rules" / "pr"
+    target.mkdir(parents=True)
+    (target / "x.md").write_text("# x\n", encoding="utf-8")
+    plain = root / "docs"
+    plain.mkdir()
+    (plain / "y.md").write_text("# y\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+
+    got = {p.relative_to(root).as_posix() for p in gen_readmes.staged_folders(root)}
+    assert "docs" in got
+    assert not [p for p in got if p.startswith(".claude")]
