@@ -7,6 +7,7 @@
 - `backup-before-destructive.md` — 되돌릴 수 없는 작업 전에 백업하고, 그 작업이 대상 밖에 미친 영향까지 확인하는 사항.
 - `context-scope-narrowest.md` — 규약을 그것을 읽어야 할 좌석이 실제로 닿는 가장 좁은 자리에 두는 사항.
 - `doc-authoring-norms.md` — 문서를 저작할 때 지켜야 할 규범에 관한 사항.
+- `documents-are-not-premises.md` — 저장소 문서를 절대적 전제로 두지 않고 실물과 근거로 검토하는 규약.
 - `escalate-by-reversal-cost.md` — 의사결정의 자율 수행과 사람 상신 여부를 되돌리기 비용으로 가르는 사항.
 - `gates-judge-only-what-they-can-see.md` — 유한하고 객관적으로 답이 나오는 것만 검사로 만드는 사항.
 - `issue-reference-and-pr-linkage.md` — 이슈를 umbrella와 단일로 가르고 PR 종료 키워드를 가려 쓰는 사항.
