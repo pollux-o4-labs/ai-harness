@@ -12,7 +12,7 @@
 - `issue-reference-and-pr-linkage.md` — 이슈를 umbrella와 단일로 가르고 PR 종료 키워드를 가려 쓰는 사항.
 - `no-premature-skill-extraction.md` — 검증되지 않은 절차의 성급한 스킬 추출을 금지하는 규약.
 - `one-register-per-document.md` — 저장소에 남는 모든 글의 어휘 층위를 하나로 고정하는 사항.
-- `path-reference-by-audience.md` — 참조 경로는 읽는 주체가 사람인지 기계인지에 따라 서식을 구분한다.
+- `path-reference-by-audience.md` — 경로 표기는 대상 경로의 저장소 저장 여부에 따라 상대 경로와 절대 경로로 구분한다.
 - `pr-body-structure.md` — PR 본문의 필수 섹션·분량 예산·용어 풀이·검수 자기신고에 관한 사항.
 - `repetition-is-a-structural-signal.md` — 구두 지시의 반복을 주의력 결여가 아닌 구조적 결함 신호로 다루는 규약.
 - `research-before-proposing.md` — 조직과 절차 제안 시 외부 사례 조사를 선행해야 하는 규약.
